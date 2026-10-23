@@ -25,9 +25,10 @@ data/*.db
 data/processed/
 tools/pmtiles_bin/
 
-# 保留重要產出
+# 保留重要產出與免 CORS 向量圖磚 (<100MB 隨 Git 同源發布)
 !data/meta.json
 !data/processed/cities_meta.json
+!data/taiwan_poles.pmtiles
 
 # Environment & Temp
 .env

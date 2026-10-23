@@ -7008,10 +7008,8 @@ window.__appBooted = true;
       const renderer = new canvasLayer().addTo(map);
       window.__renderer = renderer;
 
-      const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-      const pmtilesUrl = isLocalHost
-        ? "/data/taiwan_poles.pmtiles"
-        : "https://github.com/aertyuloq8/taipower-taiwan-map/releases/download/v1.0.0/taiwan_poles.pmtiles";
+      // 採用同源相對路徑載入 PMTiles，100% 免 CORS，完全支援 GitHub Pages 與本機 Range Request
+      const pmtilesUrl = new URL("../data/taiwan_poles.pmtiles", window.location.href).href;
       const pmtilesLayer = createPMTilesLayer(pmtilesUrl, {
         isLabelsHidden: () => state.labelsHidden,
         getSelectedId: () => state.selectedPole?.id,

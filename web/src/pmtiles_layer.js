@@ -151,18 +151,18 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
 
       (async () => {
         try {
-          if (z <= 14) {
+          if (z <= 13) {
             const features = await getTileFeatures(z, coords.x, coords.y);
             this.renderTileDots(ctx, features, z, 0, 0, 4096, size.x);
           } else {
-            const dz = z - 14;
+            const dz = z - 13;
             const parentX = coords.x >> dz;
             const parentY = coords.y >> dz;
             const subSize = 4096 >> dz;
             const subMinX = (coords.x & ((1 << dz) - 1)) * subSize;
             const subMinY = (coords.y & ((1 << dz) - 1)) * subSize;
 
-            const parentFeatures = await getTileFeatures(14, parentX, parentY);
+            const parentFeatures = await getTileFeatures(13, parentX, parentY);
             const subFeatures = [];
             for (const f of parentFeatures) {
               if (f.px >= subMinX && f.px < subMinX + subSize &&
@@ -271,7 +271,7 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
    * 供 Leaflet DOM 標籤層（避免邊界裁切）與路線圖層（推算供電線路）使用
    */
   layer.getVisiblePolesInBounds = async function(bounds, zoom = 15) {
-    const zNative = Math.min(zoom, 14);
+    const zNative = Math.min(zoom, 13);
     const nw = bounds.getNorthWest();
     const se = bounds.getSouthEast();
 
@@ -337,14 +337,9 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
     const zoom = map.getZoom();
     if (zoom < 12) return null;
 
-    const tileCoord = latLng2Tile(latlng.lat, latlng.lng, zoom <= 14 ? zoom : 14);
-    let features = [];
-
-    if (zoom <= 14) {
-      features = await getTileFeatures(zoom, tileCoord.x, tileCoord.y);
-    } else {
-      features = await getTileFeatures(14, tileCoord.x, tileCoord.y);
-    }
+    const zNative = Math.min(zoom, 13);
+    const tileCoord = latLng2Tile(latlng.lat, latlng.lng, zNative);
+    const features = await getTileFeatures(zNative, tileCoord.x, tileCoord.y);
 
     if (!features || features.length === 0) return null;
 
@@ -352,7 +347,7 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
     let minD = Infinity;
 
     for (const f of features) {
-      const poleLatLng = tilePoint2LatLng(tileCoord.x, tileCoord.y, zoom <= 14 ? zoom : 14, f.px, f.py);
+      const poleLatLng = tilePoint2LatLng(tileCoord.x, tileCoord.y, zNative, f.px, f.py);
       const polePoint = map.latLngToContainerPoint([poleLatLng.lat, poleLatLng.lng]);
       const clickPoint = map.latLngToContainerPoint(latlng);
       const dist = Math.hypot(polePoint.x - clickPoint.x, polePoint.y - clickPoint.y);

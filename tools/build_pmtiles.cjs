@@ -56,7 +56,7 @@ async function main() {
   insertMeta.run('name', 'taipower_taiwan_poles');
   insertMeta.run('format', 'pbf');
   insertMeta.run('minzoom', '10');
-  insertMeta.run('maxzoom', '14');
+  insertMeta.run('maxzoom', '13');
   insertMeta.run('bounds', '119.0,21.5,122.5,26.5');
   insertMeta.run('center', '120.7,23.8,12');
   insertMeta.run('type', 'overlay');
@@ -68,13 +68,10 @@ async function main() {
         id: 'poles',
         description: '台電電桿',
         minzoom: 10,
-        maxzoom: 14,
+        maxzoom: 13,
         fields: {
           name: 'String',
           code: 'String',
-          city: 'String',
-          area: 'String',
-          type: 'String',
           id: 'Number'
         }
       }
@@ -100,10 +97,9 @@ async function main() {
     }
   }
 
-  // 2. 第一階段：載入全量電桿並處理 Zoom 13 & 14 (100% 完整資料)
+  // 2. 第一階段：載入全量電桿並處理 Zoom 13 (100% 完整資料)
   console.log('\n[階段 1/2] 讀取全台 296 萬筆電桿資料...');
   let fullFeatures = [];
-  const z14Keys = new Set();
   const z13Keys = new Set();
 
   const rl = readline.createInterface({
@@ -121,27 +117,23 @@ async function main() {
       geometry: f.geometry,
       properties: {
         name: f.properties.name || '',
-        code: f.properties.code || '',
-        city: f.properties.city || '',
-        area: f.properties.area || '',
-        type: f.properties.type || '',
+        code: (f.properties.code && f.properties.code !== f.properties.name) ? f.properties.code : '',
         id: f.properties.id
       }
     });
 
-    z14Keys.add(lng2tile(lng, 14) + ',' + lat2tile(lat, 14));
     z13Keys.add(lng2tile(lng, 13) + ',' + lat2tile(lat, 13));
   }
 
   console.log(`載入完成：${fullFeatures.length.toLocaleString()} 筆電桿，耗時 ${((Date.now() - t0)/1000).toFixed(1)}s`);
-  console.log(`即將產出圖磚：z14=${z14Keys.size}, z13=${z13Keys.size}`);
+  console.log(`即將產出圖磚：z13=${z13Keys.size}`);
 
-  console.log('建立 GeoJSONVT 索引 (z13-z14)...');
+  console.log('建立 GeoJSONVT 索引 (z13)...');
   const tIdx1 = Date.now();
-  let index13_14 = new GeoJSONVT({ type: 'FeatureCollection', features: fullFeatures }, {
+  let index13 = new GeoJSONVT({ type: 'FeatureCollection', features: fullFeatures }, {
     minZoom: 13,
-    maxZoom: 14,
-    indexMaxZoom: 14,
+    maxZoom: 13,
+    indexMaxZoom: 13,
     indexMaxPoints: 100000,
     tolerance: 2,
     extent: 4096,
@@ -149,30 +141,15 @@ async function main() {
   });
   console.log(`索引完成，耗時 ${((Date.now() - tIdx1)/1000).toFixed(1)}s`);
 
-  // 產出 Zoom 14
-  console.log('正在產出 Zoom 14 圖磚...');
-  const tZ14 = Date.now();
-  for (const k of z14Keys) {
-    const [x, y] = k.split(',').map(Number);
-    const tile = index13_14.getTile(14, x, y);
-    if (!tile || !tile.features || tile.features.length === 0) continue;
-    const pbf = vtpbf.fromGeojsonVt({ poles: tile });
-    const compressed = zlib.gzipSync(pbf);
-    batchBuffer.push({ z: 14, x, y, data: compressed });
-    if (batchBuffer.length >= 500) flushBatch();
-  }
-  flushBatch();
-  console.log(`Zoom 14 完成 (${z14Keys.size} 圖磚)，耗時 ${((Date.now() - tZ14)/1000).toFixed(1)}s`);
-
   // 產出 Zoom 13
   console.log('正在產出 Zoom 13 圖磚...');
   const tZ13 = Date.now();
   for (const k of z13Keys) {
     const [x, y] = k.split(',').map(Number);
-    const tile = index13_14.getTile(13, x, y);
+    const tile = index13.getTile(13, x, y);
     if (!tile || !tile.features || tile.features.length === 0) continue;
     const pbf = vtpbf.fromGeojsonVt({ poles: tile });
-    const compressed = zlib.gzipSync(pbf);
+    const compressed = zlib.gzipSync(pbf, { level: 9 });
     batchBuffer.push({ z: 13, x, y, data: compressed });
     if (batchBuffer.length >= 500) flushBatch();
   }
@@ -181,7 +158,7 @@ async function main() {
 
   // 關鍵步驟：主動銷毀大物件並觸發垃圾回收
   console.log('\n釋放全量索引記憶體...');
-  index13_14 = null;
+  index13 = null;
   fullFeatures = null;
   if (global.gc) global.gc();
 
@@ -211,10 +188,7 @@ async function main() {
       type: 'Feature',
       geometry: f.geometry,
       properties: {
-        name: f.properties.name || '',
-        code: f.properties.code || '',
-        city: f.properties.city || '',
-        area: f.properties.area || ''
+        name: f.properties.name || ''
       }
     });
 
@@ -242,7 +216,7 @@ async function main() {
     const tile = index10_12.getTile(12, x, y);
     if (!tile || !tile.features || tile.features.length === 0) continue;
     const pbf = vtpbf.fromGeojsonVt({ poles: tile });
-    const compressed = zlib.gzipSync(pbf);
+    const compressed = zlib.gzipSync(pbf, { level: 9 });
     batchBuffer.push({ z: 12, x, y, data: compressed });
     if (batchBuffer.length >= 500) flushBatch();
   }
@@ -255,7 +229,7 @@ async function main() {
     const tile = index10_12.getTile(11, x, y);
     if (!tile || !tile.features || tile.features.length === 0) continue;
     const pbf = vtpbf.fromGeojsonVt({ poles: tile });
-    const compressed = zlib.gzipSync(pbf);
+    const compressed = zlib.gzipSync(pbf, { level: 9 });
     batchBuffer.push({ z: 11, x, y, data: compressed });
     if (batchBuffer.length >= 500) flushBatch();
   }
@@ -268,7 +242,7 @@ async function main() {
     const tile = index10_12.getTile(10, x, y);
     if (!tile || !tile.features || tile.features.length === 0) continue;
     const pbf = vtpbf.fromGeojsonVt({ poles: tile });
-    const compressed = zlib.gzipSync(pbf);
+    const compressed = zlib.gzipSync(pbf, { level: 9 });
     batchBuffer.push({ z: 10, x, y, data: compressed });
     if (batchBuffer.length >= 500) flushBatch();
   }
