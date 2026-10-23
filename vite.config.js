@@ -12,7 +12,8 @@ function dataDirPlugin() {
     name: "serve-project-data",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const urlPath = req.url?.split("?")[0] || "";
+        let urlPath = req.url?.split("?")[0] || "";
+        try { urlPath = decodeURIComponent(urlPath); } catch {}
         if (!urlPath.startsWith("/data/")) return next();
         const target = path.join(dataDir, urlPath.slice("/data/".length));
         if (!target.startsWith(dataDir)) return next();

@@ -7,17 +7,22 @@ dist/
 __pycache__/
 *.pyc
 
-# Raw Large Datasets (勿直接提交數百 MB 原始大表)
+# Raw Large Datasets & Processed Large Cache
 *.csv
 *.xlsx
 *.xls
 *.zip
+*.geojsonseq
 data/raw/
 data/cache/
+data/processed/cities/
+data/processed/taiwan_poles.geojsonseq
+data/points.json
 
 # 保留重要產出
 !data/*.pmtiles
 !data/meta.json
+!data/processed/cities_meta.json
 
 # Environment & Temp
 .env

@@ -2487,6 +2487,7 @@ window.__appBooted = true;
       const folderList        = document.querySelector("#folderList");
       const selectedCountText = document.getElementById("selectedCount");
       const areaSelect        = document.getElementById("areaSelect");
+      const citySelect        = document.getElementById("citySelect");
       const searchInput       = document.getElementById("searchInput");
       const results           = document.getElementById("results");
       const resultTemplate    = document.getElementById("resultTemplate");
@@ -7026,8 +7027,126 @@ window.__appBooted = true;
         drawCount.textContent    = formatNumber(state.drawnItems.length);
       }
       function fillAreas() {
-        for (const area of state.meta?.areas || []) {
-          const option = document.createElement("option"); option.value = area.name; option.textContent = `${area.name} (${formatNumber(area.count)})`; areaSelect.append(option);
+        if (areaSelect) {
+          areaSelect.innerHTML = '<option value="">全部區域</option>';
+          for (const area of state.meta?.areas || []) {
+            const option = document.createElement("option");
+            option.value = area.name;
+            option.textContent = `${area.name} (${formatNumber(area.count)})`;
+            areaSelect.append(option);
+          }
+        }
+      }
+
+      let allCitiesMeta = [];
+
+      async function initCitySelector() {
+        if (!citySelect) return;
+        try {
+          const metaUrls = ["../data/processed/cities_meta.json", "data/processed/cities_meta.json"];
+          let res = null;
+          for (const u of metaUrls) {
+            try {
+              res = await fetch(u);
+              if (res.ok) break;
+            } catch {}
+          }
+          if (!res || !res.ok) return;
+          allCitiesMeta = await res.json();
+          citySelect.innerHTML = "";
+          for (const item of allCitiesMeta) {
+            const opt = document.createElement("option");
+            opt.value = item.city;
+            opt.textContent = `${item.city} (${formatNumber(item.count)})`;
+            citySelect.appendChild(opt);
+          }
+          const defaultCity = state.meta?.source?.match(/(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義市|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|澎湖縣|金門縣|連江縣)/)?.[1] || "嘉義市";
+          const savedCity = localStorage.getItem("tp_selected_city") || defaultCity;
+          if (allCitiesMeta.some(c => c.city === savedCity)) {
+            citySelect.value = savedCity;
+            if (savedCity !== defaultCity) {
+              await switchCity(savedCity);
+            }
+          }
+        } catch (e) {
+          console.warn("載入縣市選單失敗：", e);
+        }
+      }
+
+      citySelect?.addEventListener("change", async (e) => {
+        const cityName = e.target.value;
+        if (cityName) await switchCity(cityName);
+      });
+
+      async function switchCity(cityName) {
+        setStatus(`載入【${cityName}】設備資料...`);
+        localStorage.setItem("tp_selected_city", cityName);
+        try {
+          const cityInfo = allCitiesMeta.find(c => c.city === cityName);
+          const urls = [
+            `../data/processed/cities/${cityName}.json`,
+            `data/processed/cities/${cityName}.json`
+          ];
+          
+          let points = null;
+          try {
+            const worker = new Worker(new URL("./workers/points-worker.js", import.meta.url));
+            points = await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => { worker.terminate(); reject(new Error("Worker 逾時")); }, 30000);
+              worker.onmessage = (ev) => {
+                clearTimeout(timer); worker.terminate();
+                if (ev.data?.type === "done" && Array.isArray(ev.data.points)) resolve(ev.data.points);
+                else reject(new Error(ev.data?.error || "Worker 解析失敗"));
+              };
+              worker.onerror = (err) => { clearTimeout(timer); worker.terminate(); reject(err); };
+              const absUrls = urls.map(u => new URL(u, window.location.href).href);
+              worker.postMessage({ id: "points", urls: absUrls });
+            });
+          } catch (workerErr) {
+            console.warn("Worker 載入城市失敗，降級主線程：", workerErr);
+            for (const u of urls) {
+              try {
+                const r = await fetch(u);
+                if (r.ok) { points = await r.json(); break; }
+              } catch {}
+            }
+          }
+
+          if (!Array.isArray(points)) throw new Error("無效的點位資料");
+
+          const areaCount = new Map();
+          for (const p of points) {
+            const a = p.area || "未分類";
+            areaCount.set(a, (areaCount.get(a) || 0) + 1);
+          }
+          const areas = [...areaCount.entries()]
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+
+          const lats = points.map(p => p.lat);
+          const lngs = points.map(p => p.lng);
+          const bounds = cityInfo?.bounds || [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
+
+          state.points = points;
+          state.meta = {
+            source: `${cityName}開放資料 (Dataset 33305)`,
+            totalRows: points.length,
+            converted: points.length,
+            bounds,
+            areas,
+            pointsHash: `${cityName}_${points.length}`,
+          };
+
+          fillAreas();
+          renderResults([]);
+          if (bounds) map.fitBounds(bounds, { padding: [28, 28] });
+          renderer.redraw();
+          updateStats();
+          setStatus(`【${cityName}】共 ${formatNumber(points.length)} 支電桿載入完成`);
+          setTimeout(() => setStatus(""), 2500);
+        } catch (err) {
+          console.error("切換縣市失敗：", err);
+          setStatus(`⚠️ 切換縣市失敗：${err.message}`);
         }
       }
 
@@ -7900,7 +8019,7 @@ function renderDefectStats() {
           const { meta, points } = await tryFetchData();
           state.meta = meta; state.points = points;
           await cacheEquipmentData(meta, points);
-          fillAreas(); renderResults([]);
+          fillAreas(); renderResults([]); await initCitySelector();
           map.setView([23.7, 120.95], 8);
           if (state.meta?.bounds) map.fitBounds(state.meta.bounds, { padding: [28, 28] });
           renderer.redraw();

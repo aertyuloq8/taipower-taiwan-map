@@ -152,7 +152,10 @@
           <button class="v2-tab-btn" data-search-tab="coord" role="tab" aria-selected="false">📍 座標</button>
         </nav>
         <div data-search-pane="device" style="display:flex; flex-direction:column; gap:8px;">
-          <select id="areaSelect"><option value="">全部區域</option></select>
+          <div style="display:flex; gap:6px;">
+            <select id="citySelect" style="flex:1; font-weight:700;"><option value="">載入縣市中…</option></select>
+            <select id="areaSelect" style="flex:1;"><option value="">全部區域</option></select>
+          </div>
           <input id="searchInput" type="search" placeholder="搜尋設備或圖號座標" autocomplete="off" />
         </div>
         <div class="map-search-coord-form" data-search-pane="coord" hidden>

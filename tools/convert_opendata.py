@@ -119,7 +119,13 @@ def parse_csv(csv_path: Path) -> Iterator[dict]:
 
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    csv_files = list(RAW_DIR.glob("*.csv"))
+    all_file = RAW_DIR / "all_全台灣.csv"
+    if all_file.exists():
+        csv_files = [all_file]
+        print(f"優先使用全台灣完整檔：{all_file.name}")
+    else:
+        csv_files = list(RAW_DIR.glob("*.csv"))
+
     if not csv_files:
         print(f"在 {RAW_DIR} 中找不到任何 CSV 檔案。請先執行 fetch_opendata.py 下載資料。")
         return
@@ -153,7 +159,7 @@ def main():
                 c_name = item["city"] or "其他"
                 city_buckets[c_name].append(item)
 
-                if total_count % 100000 == 0:
+                if total_count % 200000 == 0:
                     print(f"已處理 {total_count:,} 筆電桿...")
 
     print(f"\n全部處理完成！共 {total_count:,} 筆有效電桿。")
@@ -162,19 +168,39 @@ def main():
     city_dir = OUTPUT_DIR / "cities"
     city_dir.mkdir(exist_ok=True)
     city_meta = []
-    for city, items in city_buckets.items():
+    
+    # 台灣標準行政區順序偏好
+    city_order = [
+        "臺北市", "新北市", "桃園市", "臺中市", "臺南市", "高雄市",
+        "基隆市", "新竹市", "新竹縣", "苗栗縣", "彰化縣", "南投縣",
+        "雲林縣", "嘉義市", "嘉義縣", "屏東縣", "宜蘭縣", "花蓮縣",
+        "臺東縣", "澎湖縣", "金門縣", "連江縣"
+    ]
+    sorted_cities = sorted(city_buckets.keys(), key=lambda c: (city_order.index(c) if c in city_order else 999, c))
+
+    for city in sorted_cities:
+        items = city_buckets[city]
         c_path = city_dir / f"{city}.json"
         c_path.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
-        city_meta.append({"city": city, "count": len(items), "file": f"cities/{city}.json"})
+        
+        lats = [p["lat"] for p in items]
+        lngs = [p["lng"] for p in items]
+        city_meta.append({
+            "city": city,
+            "count": len(items),
+            "file": f"processed/cities/{city}.json",
+            "bounds": [[min(lats), min(lngs)], [max(lats), max(lngs)]]
+        })
+        print(f"  - {city:6}: {len(items):8,} 筆 -> {c_path.name}")
 
     meta_path = OUTPUT_DIR / "cities_meta.json"
     meta_path.write_text(json.dumps(city_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"各縣市 JSON 已產出至：{city_dir}")
+    print(f"\n各縣市清單詮釋資料已產出至：{meta_path}")
 
-    # 若有資料，建立根目錄 data/meta.json 與 data/points.json 供前端直接測試載入
+    # 建立前端預設載入檔 data/meta.json 與 data/points.json (優先選嘉義市或臺南市)
     if city_buckets:
-        first_city = list(city_buckets.keys())[0]
-        test_poles = city_buckets[first_city]
+        default_city = "嘉義市" if "嘉義市" in city_buckets else ("臺南市" if "臺南市" in city_buckets else sorted_cities[0])
+        test_poles = city_buckets[default_city]
         lats = [p["lat"] for p in test_poles]
         lngs = [p["lng"] for p in test_poles]
         area_counter = defaultdict(int)
@@ -183,16 +209,16 @@ def main():
         areas_list = [{"name": k, "count": v} for k, v in sorted(area_counter.items(), key=lambda x: x[1], reverse=True)]
 
         root_meta = {
-            "source": f"{first_city}開放資料",
+            "source": f"{default_city}開放資料 (Dataset 33305)",
             "totalRows": len(test_poles),
             "converted": len(test_poles),
             "bounds": [[min(lats), min(lngs)], [max(lats), max(lngs)]],
             "areas": areas_list,
-            "pointsHash": f"{first_city}_{len(test_poles)}",
+            "pointsHash": f"{default_city}_{len(test_poles)}",
         }
         (DATA_DIR / "meta.json").write_text(json.dumps(root_meta, ensure_ascii=False, indent=2), encoding="utf-8")
         (DATA_DIR / "points.json").write_text(json.dumps(test_poles, ensure_ascii=False), encoding="utf-8")
-        print(f"已同步建立前端預設載入檔：data/meta.json 與 data/points.json（載入【{first_city}】共 {len(test_poles):,} 筆）")
+        print(f"已同步建立前端預設載入檔：data/meta.json 與 data/points.json（預設載入【{default_city}】共 {len(test_poles):,} 筆）")
 
 
 if __name__ == "__main__":
