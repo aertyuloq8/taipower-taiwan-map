@@ -1,6 +1,7 @@
 import "./modules/modal.js";
 import "./modules/coords.js";
 import "./modules/constants.js";
+import { createPMTilesLayer } from "./pmtiles_layer.js";
 const { STORAGE_KEY, LEGACY_STORAGE_KEYS, PHOTO_DB_NAME, PHOTO_DB_VERSION, PHOTO_STORE_NAME, DRAFT_STORE_NAME, APP_DATA_STORE_NAME,
         DRAFT_ACTIVE_ID, EQUIPMENT_CACHE_ID, BACKUP_SUMMARY_KEY, BACKUP_FORMAT_VERSION, MAX_DIRECT_POINTS, MAX_ROUTE_POINTS } = window;
 // 開機旗標：index.html 內聯腳本用它判斷主程式是否成功載入（版本錯位時提示重整）
@@ -2047,9 +2048,10 @@ window.__appBooted = true;
       function miniPopupHtml(point) {
         let coLocatedHtml = "";
         try {
-          if (typeof state !== "undefined" && Array.isArray(state?.points)) {
+          if (typeof state !== "undefined") {
             const lat = Number(point.lat), lng = Number(point.lng);
-            const others = state.points.filter(p => (p.id !== point.id || p.name !== point.name) && Math.abs(p.lat - lat) < 0.0000005 && Math.abs(p.lng - lng) < 0.0000005);
+            const candidatePoints = state.usePMTiles ? (state.visiblePoints || []) : (state.points || []);
+            const others = candidatePoints.filter(p => (p.id !== point.id || p.name !== point.name) && Math.abs(p.lat - lat) < 0.0000005 && Math.abs(p.lng - lng) < 0.0000005);
             if (others.length > 0) {
               coLocatedHtml = `
                 <div style="margin-top:6px; padding-top:6px; border-top:1px dashed #cbd5e1; font-size:11px; text-align:left;">
@@ -2081,8 +2083,80 @@ window.__appBooted = true;
 // ==========================================
       // Leaflet 地圖初始化
       // ==========================================
-      const map = L.map("map", { preferCanvas: true, zoomControl: false, attributionControl: true });
+      let initialCenter = [23.8, 120.9];
+      let initialZoom = 10;
+      const hashMatch = (location.hash || "").match(/^#(\d+(?:\.\d+)?)\/([0-9.-]+)\/([0-9.-]+)/);
+      if (hashMatch) {
+        initialZoom = parseFloat(hashMatch[1]);
+        initialCenter = [parseFloat(hashMatch[2]), parseFloat(hashMatch[3])];
+      }
+      const map = L.map("map", { preferCanvas: true, zoomControl: false, attributionControl: true }).setView(initialCenter, initialZoom);
+      window.map = map;
       window.__v2LeafletMap = map;
+
+      // 隱藏式雙版本跳轉：連點 3 次大標題、長按 1.5 秒、或按 Ctrl+Alt+S 觸發，介面 100% 不留痕跡
+      function switchToRegionalEdition() {
+        if (!map) return;
+        const c = map.getCenter();
+        const z = map.getZoom();
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const defaultTarget = isLocal ? "../webpro/web/" : "https://aertyuloq8.github.io/taipower-equipment-map/web/";
+        const baseUrl = window.__REGIONAL_EDITION_URL || defaultTarget;
+        const targetUrl = `${baseUrl}#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`;
+        if (confirm("⚡ 是否切換至【臺南巡檢專用版】？\n\n（將保留目前地圖視野位置）")) {
+          window.location.href = targetUrl;
+        }
+      }
+
+      (function initHiddenSwitchTriggers() {
+        const titleEl = document.querySelector(".panel-title h1");
+        if (titleEl) {
+          let clicks = 0;
+          let timer = null;
+          titleEl.addEventListener("click", () => {
+            clicks++;
+            clearTimeout(timer);
+            timer = setTimeout(() => { clicks = 0; }, 700);
+            if (clicks >= 3) {
+              clicks = 0;
+              switchToRegionalEdition();
+            }
+          });
+
+          let pressTimer = null;
+          titleEl.addEventListener("touchstart", () => {
+            pressTimer = setTimeout(switchToRegionalEdition, 1500);
+          }, { passive: true });
+          titleEl.addEventListener("touchend", () => clearTimeout(pressTimer));
+          titleEl.addEventListener("touchcancel", () => clearTimeout(pressTimer));
+        }
+
+        // 電腦端鍵盤快捷鍵：Ctrl + Alt + S (Switch)
+        window.addEventListener("keydown", (e) => {
+          if (e.ctrlKey && e.altKey && (e.key === "s" || e.key === "S")) {
+            e.preventDefault();
+            switchToRegionalEdition();
+          }
+        });
+
+        // 在圖層面板最底端加上微小不起眼的版本號，作為備用暗門 (外人只會當作一般版本號)
+        const layerPanel = document.getElementById("layerMenuPanel");
+        if (layerPanel) {
+          const verWrap = document.createElement("div");
+          verWrap.style.cssText = "margin-top:10px; padding-top:6px; border-top:1px dashed #e2e8f0; text-align:center;";
+          const verLink = document.createElement("a");
+          verLink.href = "javascript:void(0)";
+          verLink.textContent = "v2.6.0-tw";
+          verLink.style.cssText = "color:#94a3b8; font-size:10px; text-decoration:none; opacity:0.6; cursor:pointer;";
+          verLink.title = "系統版本資訊";
+          verLink.addEventListener("click", (e) => {
+            e.preventDefault();
+            switchToRegionalEdition();
+          });
+          verWrap.appendChild(verLink);
+          layerPanel.appendChild(verWrap);
+        }
+      })();
       map.createPane("routePane");
       map.getPane("routePane").style.zIndex = 390;
       map.getPane("routePane").style.pointerEvents = "none";
@@ -2463,10 +2537,12 @@ window.__appBooted = true;
       }
 
       const SHOW_POINTS_ZOOM   = 15;
-      const MAX_POINT_LABELS   = 1200;
+      const MAX_POINT_LABELS   = 2000;
       
 
       const state = {
+        usePMTiles: true,
+        selectedPole: null,
         points: [], meta: null, area: "", query: "",
         search: { prefixes: [], terms: [] },
         visiblePoints: [], drawnItems: [], equipmentColorMap: new Map(),
@@ -2680,6 +2756,8 @@ window.__appBooted = true;
       let routeLayer   = L.layerGroup().addTo(map);
       let labelsLayer  = L.layerGroup().addTo(map);
       let recordsLayer = L.featureGroup().addTo(map);
+      window.__routeLayer = routeLayer;
+      window.__labelsLayer = labelsLayer;
 
       // ==========================================
       // ★ 混合圖示系統（Emoji + 1~3字短文字）
@@ -3959,7 +4037,11 @@ window.__appBooted = true;
 
             deleteFolderRecursive(fId);
             saveToLocalStorage();
-            renderer.redraw();
+            if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
+          renderer.redraw();
+        }
             renderFolders();
             deleteRecordPhotos(recordsToDelete).catch(error => console.warn("刪除照片失敗：", error));
           });
@@ -5937,7 +6019,11 @@ window.__appBooted = true;
         beginEditPhotos(null);
         await clearEditDraft();
         saveToLocalStorage();
-        renderer.redraw();
+        if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
+          renderer.redraw();
+        }
         renderPhotoBrowser();
         refreshStorageStatus();
         const folderSelect = document.getElementById("sidebar-folder");
@@ -5995,7 +6081,11 @@ window.__appBooted = true;
         state.records.push(...newRecords);
         normalizeInspectionState();
         saveToLocalStorage();
-        renderer.redraw();
+        if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
+          renderer.redraw();
+        }
         renderPhotoBrowser();
         refreshStorageStatus();
         const folderSelect = document.getElementById("sidebar-folder");
@@ -6624,7 +6714,11 @@ window.__appBooted = true;
         for (const t of tokens) { const n = t.toUpperCase(); if (/^[A-Z]\d{4}$/.test(n)) { if (!prefixes.includes(n)) prefixes.push(n); } else terms.push(t.toLowerCase()); }
         return { prefixes, terms };
       }
-      function pointSearchText(point) { return `${point.name || ""} ${point.code || ""} ${codePrefix(point.code)}`.toLowerCase(); }
+      function pointSearchText(point) {
+        const raw = `${point.name || ""} ${point.code || ""} ${codePrefix(point.code)}`.toLowerCase();
+        const noHash = raw.replace(/#/g, "");
+        return `${raw} ${noHash}`;
+      }
       function hasSearchTerm(point, terms) { if (!terms.length) return false; const text = pointSearchText(point); return terms.some(term => text.includes(term)); }
       function matchesSearch(point, search) {
         if (!search.prefixes.length && !search.terms.length) return true;
@@ -6639,7 +6733,11 @@ window.__appBooted = true;
         return matchesSearch(point, state.search);
       }
       function visibleFilteredPoints() {
-        const bounds = map.getBounds(), output = [];
+        const bounds = map.getBounds();
+        if (state.usePMTiles) {
+          return (state.visiblePoints || []).filter(point => pointInBounds(point, bounds) && matchesFilters(point));
+        }
+        const output = [];
         for (const point of state.points) { if (pointInBounds(point, bounds) && matchesFilters(point)) output.push(point); }
         return output;
       }
@@ -6780,7 +6878,7 @@ window.__appBooted = true;
           btn.setAttribute("aria-pressed", String(state.routeLayerVisible));
         }
         syncLayerMenuState();
-        if (!state.routeLayerVisible || !state.points.length) return;
+        if (!state.routeLayerVisible || (!state.points.length && !state.usePMTiles)) return;
 
         const sourcePoints = visibleFilteredPoints();
         if (sourcePoints.length < 3) {
@@ -6848,7 +6946,11 @@ window.__appBooted = true;
         if (labelsBtn) labelsBtn.classList.remove("is-hidden");
         syncMobileMapControls();
         syncLayerMenuState();
-        renderer.redraw();
+        if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
+          renderer.redraw();
+        }
         updateRecordMarkers();
         return true;
       }
@@ -6864,7 +6966,10 @@ window.__appBooted = true;
         },
         onRemove(currentMap) { L.DomUtil.remove(this.canvas); currentMap.off("moveend zoomend resize", this.redraw, this); },
         redraw() {
-          if (!this.canvas || !state.points.length) return;
+          if (!this.canvas) return;
+          if (state.usePMTiles) { this.canvas.style.display = "none"; return; }
+          else { this.canvas.style.display = ""; }
+          if (!state.points.length) return;
           const size = map.getSize(), topLeft = map.containerPointToLayerPoint([0, 0]);
           L.DomUtil.setPosition(this.canvas, topLeft);
           this.canvas.width  = size.x; this.canvas.height = size.y;
@@ -6902,6 +7007,72 @@ window.__appBooted = true;
       });
       const renderer = new canvasLayer().addTo(map);
       window.__renderer = renderer;
+
+      const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const pmtilesUrl = isLocalHost
+        ? "/data/taiwan_poles.pmtiles"
+        : "https://github.com/aertyuloq8/taipower-taiwan-map/releases/download/v1.0.0/taiwan_poles.pmtiles";
+      const pmtilesLayer = createPMTilesLayer(pmtilesUrl, {
+        isLabelsHidden: () => state.labelsHidden,
+        getSelectedId: () => state.selectedPole?.id,
+      });
+      window.__pmtilesLayer = pmtilesLayer;
+      if (state.usePMTiles) {
+        pmtilesLayer.addTo(map);
+      }
+
+      let syncPMTilesTimer = null;
+      let syncPMTilesReqId = 0;
+
+      async function syncVisiblePMTilesFeatures() {
+        if (!state.usePMTiles || !window.__pmtilesLayer) return;
+        const currentReqId = ++syncPMTilesReqId;
+        const zoom = map.getZoom();
+
+        // 路線圖層需要點位；標籤顯示時若 zoom >= 14 也需要點位
+        const needsPoints = state.routeLayerVisible || (!state.labelsHidden && zoom >= 14);
+
+        if (!needsPoints) {
+          state.visiblePoints = [];
+          if (labelsLayer) labelsLayer.clearLayers();
+          updateRouteLayer();
+          updateStats();
+          return;
+        }
+
+        try {
+          const fetchZoom = Math.max(zoom, 14);
+          const bounds = map.getBounds();
+          const poles = await window.__pmtilesLayer.getVisiblePolesInBounds(bounds, fetchZoom);
+
+          if (currentReqId !== syncPMTilesReqId) return;
+
+          state.visiblePoints = poles;
+          state.displayMode = "point";
+
+          // 更新 DOM 標籤層 (絕不裁切長文字)
+          if (state.labelsHidden || zoom < 14) {
+            labelsLayer.clearLayers();
+          } else {
+            updateLabels();
+          }
+
+          // 更新供電拓撲路線圖層
+          updateRouteLayer();
+
+          // 更新統計
+          updateStats();
+        } catch (err) {
+          console.warn("syncVisiblePMTilesFeatures error:", err);
+        }
+      }
+
+      function scheduleSyncPMTiles(delay = 100) {
+        if (!state.usePMTiles) return;
+        if (syncPMTilesTimer) clearTimeout(syncPMTilesTimer);
+        syncPMTilesTimer = setTimeout(syncVisiblePMTilesFeatures, delay);
+      }
+      window.__scheduleSyncPMTiles = scheduleSyncPMTiles;
 
       function circularHueDistance(a, b) { const diff = Math.abs(a - b) % 360; return Math.min(diff, 360 - diff); }
       function colorContrastScore(color, usedNeighborColors) {
@@ -7022,6 +7193,20 @@ window.__appBooted = true;
         }
       }
       function updateStats() {
+        if (state.usePMTiles) {
+          totalCount.textContent = formatNumber(2966407);
+          if (state.labelsHidden && !state.routeLayerVisible) {
+            visibleCount.textContent = "標籤已隱藏";
+          } else if (state.routeLayerVisible) {
+            visibleCount.textContent = `路線模式 (${formatNumber(state.visiblePoints.length)} 桿)`;
+          } else {
+            visibleCount.textContent = state.visiblePoints.length > 0 
+              ? `${formatNumber(state.visiblePoints.length)} 桿` 
+              : "全台向量模式";
+          }
+          drawCount.textContent = "自動切片載入";
+          return;
+        }
         totalCount.textContent   = formatNumber(state.points.length);
         visibleCount.textContent = formatNumber(state.labelsHidden ? 0 : state.visiblePoints.length);
         drawCount.textContent    = formatNumber(state.drawnItems.length);
@@ -7054,6 +7239,10 @@ window.__appBooted = true;
           if (!res || !res.ok) return;
           allCitiesMeta = await res.json();
           citySelect.innerHTML = "";
+          const optAll = document.createElement("option");
+          optAll.value = "全台灣";
+          optAll.textContent = "🗺️ 全台灣 (296 萬筆電桿 · PMTiles)";
+          citySelect.appendChild(optAll);
           for (const item of allCitiesMeta) {
             const opt = document.createElement("option");
             opt.value = item.city;
@@ -7061,8 +7250,8 @@ window.__appBooted = true;
             citySelect.appendChild(opt);
           }
           const defaultCity = state.meta?.source?.match(/(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義市|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|澎湖縣|金門縣|連江縣)/)?.[1] || "嘉義市";
-          const savedCity = localStorage.getItem("tp_selected_city") || defaultCity;
-          if (allCitiesMeta.some(c => c.city === savedCity)) {
+          const savedCity = localStorage.getItem("tp_selected_city") || "全台灣";
+          if (savedCity === "全台灣" || allCitiesMeta.some(c => c.city === savedCity)) {
             citySelect.value = savedCity;
             if (savedCity !== defaultCity) {
               await switchCity(savedCity);
@@ -7079,8 +7268,45 @@ window.__appBooted = true;
       });
 
       async function switchCity(cityName) {
-        setStatus(`載入【${cityName}】設備資料...`);
         localStorage.setItem("tp_selected_city", cityName);
+        if (cityName === "全台灣") {
+          state.usePMTiles = true;
+          if (window.__pmtilesLayer && !map.hasLayer(window.__pmtilesLayer)) {
+            window.__pmtilesLayer.addTo(map);
+          }
+          if (renderer && renderer.canvas) {
+            renderer.canvas.style.display = "none";
+          }
+          labelsLayer.clearLayers();
+          state.points = [];
+          state.meta = {
+            source: "全台灣開放資料 (PMTiles 向量圖磚 2,966,407 筆)",
+            totalRows: 2966407,
+            converted: 2966407,
+            bounds: [[21.5, 119.0], [26.5, 122.5]],
+            areas: []
+          };
+          if (areaSelect) {
+            areaSelect.innerHTML = '<option value="">全台灣無分區限制</option>';
+          }
+          scheduleSyncPMTiles(120);
+          updateStats();
+          setStatus("⚡ 已啟用全台灣 PMTiles 向量圖磚 (296 萬筆電桿)");
+          setTimeout(() => setStatus(""), 2500);
+          return;
+        }
+
+        const cityInfo = allCitiesMeta.find(c => c.city === cityName);
+        if (state.usePMTiles && window.__pmtilesLayer) {
+          if (cityInfo?.bounds) {
+            map.fitBounds(cityInfo.bounds, { padding: [28, 28] });
+            setStatus(`視角已移至【${cityName}】(PMTiles 全台圖磚延續)`);
+            setTimeout(() => setStatus(""), 2500);
+          }
+          return;
+        }
+
+        setStatus(`載入【${cityName}】設備資料...`);
         try {
           const cityInfo = allCitiesMeta.find(c => c.city === cityName);
           const urls = [
@@ -7140,7 +7366,11 @@ window.__appBooted = true;
           fillAreas();
           renderResults([]);
           if (bounds) map.fitBounds(bounds, { padding: [28, 28] });
+          if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
           renderer.redraw();
+        }
           updateStats();
           setStatus(`【${cityName}】共 ${formatNumber(points.length)} 支電桿載入完成`);
           setTimeout(() => setStatus(""), 2500);
@@ -7155,7 +7385,25 @@ window.__appBooted = true;
         e.currentTarget.classList.toggle("is-hidden", state.labelsHidden);
         syncMobileMapControls();
         syncLayerMenuState();
-        renderer.redraw(); updateRecordMarkers();
+        if (state.usePMTiles) {
+          if (state.labelsHidden) {
+            labelsLayer.clearLayers();
+          } else {
+            if (map.getZoom() >= 14 && state.visiblePoints.length > 0) {
+              updateLabels();
+            } else {
+              scheduleSyncPMTiles(50);
+            }
+          }
+          updateStats();
+        } else {
+          if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
+          renderer.redraw();
+        }
+        }
+        updateRecordMarkers();
         try { e.currentTarget.blur(); } catch (err) {}
       });
       document.getElementById("routeLayerToggle").addEventListener("click", (e) => {
@@ -7166,9 +7414,27 @@ window.__appBooted = true;
           state.labelsHidden = true;
           document.getElementById("toggleLabelsBtn").classList.add("is-hidden");
           syncMobileMapControls();
-          renderer.redraw();
+          if (state.usePMTiles) {
+            labelsLayer.clearLayers();
+            scheduleSyncPMTiles(50);
+          } else {
+            if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
         } else {
-          updateRouteLayer();
+          renderer.redraw();
+        }
+          }
+        } else {
+          state.labelsHidden = false;
+          const labelsBtn = document.getElementById("toggleLabelsBtn");
+          if (labelsBtn) labelsBtn.classList.remove("is-hidden");
+          syncMobileMapControls();
+          if (state.usePMTiles) {
+            routeLayer.clearLayers();
+            scheduleSyncPMTiles(50);
+          } else {
+            updateRouteLayer();
+          }
         }
         syncLayerMenuState();
         if (state.routeLayerVisible) setStatus("已顯示設備開頭推估路線");
@@ -7191,6 +7457,9 @@ window.__appBooted = true;
       });
       map.on("moveend zoomend", () => {
         updateTpcGridReadout();
+        if (state.usePMTiles) {
+          scheduleSyncPMTiles(80);
+        }
         if (!tpcGrid.visible) return;
         if (tpcGrid.buildTimer) clearTimeout(tpcGrid.buildTimer);
         tpcGrid.buildTimer = setTimeout(buildTpcGridLayer, 60);
@@ -7305,34 +7574,109 @@ window.__appBooted = true;
         results.append(button);
       }
 
-      function applyFilter(options = {}) {
+      let globalSearchTimer = null;
+      let globalSearchReqId = 0;
+
+      async function applyFilter(options = {}) {
         disableRouteLayerForTools();
-        state.area = areaSelect.value; state.query = searchInput.value.trim(); state.search = parseSearchQuery(state.query);
-        const matches = searchMatches(state.search);
-        const code = matches.length ? null : normalizeTpcCode(state.query);
+        state.area = areaSelect.value;
+        state.query = searchInput.value.trim();
+        state.search = parseSearchQuery(state.query);
+
+        // 1. 本地即時搜尋 (巡視紀錄 + 視窗內可見電桿，0ms 秒開)
+        const localMatches = searchMatches(state.search);
+
+        // 2. 判斷是否為圖號座標定位 (例如 9碼 / 11碼圖號)
+        const code = localMatches.length ? null : normalizeTpcCode(state.query);
         const coordinates = code ? tpcCodeToLatLng(code) : null;
         if (coordinates) {
           const location = { ...coordinates, code };
           focusTpcSearchLocation(location);
           renderTpcCoordinateResult(location);
-        } else {
-          if (!options.preserveTpcLocation) clearTpcSearchLocation();
-          renderResults(matches);
+          if (state.usePMTiles) scheduleSyncPMTiles(50);
+          else renderer.redraw();
+          return;
         }
-        renderer.redraw();
+
+        // 3. 立即呈現本地符合項目
+        renderResults(localMatches);
+
+        // 4. 若輸入了關鍵字，非同步發起全台 296 萬筆設備搜尋 (次毫秒級 API)
+        if (state.query && state.query.length >= 1) {
+          fetchGlobalSearchResults(state.query, localMatches);
+        }
+
+        if (state.usePMTiles) {
+          scheduleSyncPMTiles(50);
+        } else {
+          renderer.redraw();
+        }
+      }
+
+      async function fetchGlobalSearchResults(query, localMatches) {
+        const reqId = ++globalSearchReqId;
+        if (globalSearchTimer) clearTimeout(globalSearchTimer);
+
+        globalSearchTimer = setTimeout(async () => {
+          try {
+            const cityName = citySelect?.value || "";
+            const areaName = areaSelect?.value || "";
+            const center = (typeof map !== "undefined" && map && map.getCenter) ? map.getCenter() : null;
+            const params = new URLSearchParams({
+              q: query,
+              city: cityName === "全台灣" ? "" : cityName,
+              area: areaName
+            });
+            if (center) {
+              params.set("lat", center.lat.toFixed(6));
+              params.set("lng", center.lng.toFixed(6));
+            }
+
+            const resp = await fetch(`/api/search?${params}`);
+            if (!resp.ok) return;
+            const globalResults = await resp.json();
+
+            if (reqId !== globalSearchReqId) return;
+
+            const seenKeys = new Set();
+            const combined = [];
+
+            // 本地符合優先排在最前
+            for (const item of localMatches) {
+              const k = item.id != null ? `id_${item.id}` : `${item.code}_${item.name}`;
+              seenKeys.add(k);
+              combined.push(item);
+            }
+
+            // 全台搜尋結果接續
+            for (const item of globalResults) {
+              const k = item.id != null ? `id_${item.id}` : `${item.code}_${item.name}`;
+              if (!seenKeys.has(k)) {
+                seenKeys.add(k);
+                combined.push(item);
+              }
+              if (combined.length >= 50) break;
+            }
+
+            renderResults(combined);
+          } catch (e) {
+            console.warn("全台搜尋 API 查詢失敗：", e);
+          }
+        }, 120);
       }
 
       // ★ 修改後的 searchMatches：支援僅區域無關鍵字時列出點位，巡視紀錄不受區域過濾
       function searchMatches(search) {
-        // 若無搜尋詞且無區域 → 空結果
-        if (!search.prefixes.length && !search.terms.some(t => t.length >= 2) && !state.area) {
+        // 若無搜尋詞且無區域 → 空結果 (支援 1 字中文搜尋)
+        if (!search.prefixes.length && !search.terms.some(t => t.length >= 1) && !state.area) {
           return [];
         }
 
         const outputMap = new Map();
 
-        // 1. 搜尋基礎圖資 (巡視紀錄例外，跳過區域過濾)
-        for (const point of state.points) {
+        // 1. 搜尋基礎圖資 (PMTiles 模式下搜尋當前視窗可見電桿，單一縣市模式搜尋 points)
+        const sourcePoles = state.usePMTiles ? (state.visiblePoints || []) : (state.points || []);
+        for (const point of sourcePoles) {
           if (state.area && point.area !== state.area && point.area !== "📂 巡視紀錄") continue;
           if (matchesSearch(point, search)) {
             const key = point.id != null ? `p_${point.id}` : `p_${point.code}_${point.name}`;
@@ -7437,22 +7781,70 @@ function renderDefectStats() {
       document.getElementById('photoScrollTopBtn').addEventListener('click', () => { document.querySelector('.photo-browser')?.scrollTo({ top: 0, behavior: 'smooth' }); });
       document.getElementById('photoScrollBotBtn').addEventListener('click', () => { const el = document.querySelector('.photo-browser'); el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); });
 
-      function renderResults(items) {
+      let currentAllResults = [];
+      let activeCityPill = "all";
+
+      function renderResults(items, isPillFilter = false) {
+        if (!isPillFilter) {
+          currentAllResults = items || [];
+          activeCityPill = "all";
+        }
+
         results.innerHTML = "";
-        if (!items.length) {
+        if (!items || !items.length) {
           const message = state.query
             ? "找不到相符設備。可輸入完整圖號座標，例如 M9993HC1197。"
             : "請輸入設備關鍵字或圖號座標。";
           results.innerHTML = `<p class="popup-meta">${message}</p>`;
           return;
         }
+
+        // 統計命中的各縣市數量
+        const cityMap = new Map();
+        for (const p of currentAllResults) {
+          const c = p.city || "其他";
+          cityMap.set(c, (cityMap.get(c) || 0) + 1);
+        }
+
+        // 若搜尋結果橫跨多個縣市，提供直覺的縣市快選膠囊
+        if (cityMap.size > 1) {
+          const pillsWrap = document.createElement("div");
+          pillsWrap.className = "search-city-pills";
+
+          const allBtn = document.createElement("button");
+          allBtn.type = "button";
+          allBtn.className = `search-city-pill ${activeCityPill === "all" ? "is-active" : ""}`;
+          allBtn.textContent = `全部 (${currentAllResults.length})`;
+          allBtn.addEventListener("click", () => {
+            activeCityPill = "all";
+            renderResults(currentAllResults, true);
+          });
+          pillsWrap.appendChild(allBtn);
+
+          for (const [c, count] of cityMap.entries()) {
+            const pill = document.createElement("button");
+            pill.type = "button";
+            pill.className = `search-city-pill ${activeCityPill === c ? "is-active" : ""}`;
+            pill.textContent = `${c} (${count})`;
+            pill.addEventListener("click", () => {
+              activeCityPill = c;
+              renderResults(currentAllResults.filter(p => (p.city || "其他") === c), true);
+            });
+            pillsWrap.appendChild(pill);
+          }
+          results.appendChild(pillsWrap);
+        }
+
         for (const point of items) {
           const fragment = resultTemplate.content.cloneNode(true);
           fragment.querySelector("strong").textContent = point.name || "未命名";
-          fragment.querySelector("span").textContent   = `${point.area || ""} / ${point.code || ""}`;
+          const distBadge = (point.dist_km != null)
+            ? (point.dist_km < 1 ? ` · 約 ${(point.dist_km * 1000)|0}m` : ` · 約 ${point.dist_km}km`)
+            : "";
+          fragment.querySelector("span").textContent   = `${point.city ? point.city + " " : ""}${point.area || ""}${distBadge} / ${point.code || ""}`;
           fragment.querySelector("button").addEventListener("click", () => {
             disableRouteLayerForTools();
-            map.flyTo([point.lat, point.lng], map.getMaxZoom(), { duration: 0.45 });
+            map.flyTo([point.lat, point.lng], Math.max(map.getZoom(), 18), { duration: 0.45 });
             L.popup({ autoPanPadding: [10, 10] }).setLatLng([point.lat, point.lng]).setContent(miniPopupHtml(point)).openOn(map);
             openEditPanel(point);
             document.getElementById("mapSearchPanel").classList.remove("is-open");
@@ -7477,8 +7869,21 @@ function renderDefectStats() {
         }
       });
 
-      map.on("click", (e) => {
+      map.on("click", async (e) => {
         disableRouteLayerForTools();
+        if (state.usePMTiles && window.__pmtilesLayer) {
+          const best = await window.__pmtilesLayer.findPoleAtLatLng(map, e.latlng);
+          if (best) {
+            state.selectedPole = best;
+            window.__pmtilesLayer.redraw();
+            L.popup({ autoPanPadding: [10, 10] })
+              .setLatLng([best.lat, best.lng])
+              .setContent(miniPopupHtml(best))
+              .openOn(map);
+            openEditPanel(best);
+          }
+          return;
+        }
         if (state.displayMode === "prefix") {
           const prefix = state.drawnItems.find(item => { const b = item.hitBox; return b && e.containerPoint.x >= b.x && e.containerPoint.x <= b.x + b.width && e.containerPoint.y >= b.y && e.containerPoint.y <= b.y + b.height; });
           if (prefix) map.flyTo([prefix.lat, prefix.lng], Math.max(map.getZoom() + 2, SHOW_POINTS_ZOOM), { duration: 0.45 });
@@ -8009,92 +8414,78 @@ function renderDefectStats() {
       }
 
       async function init() {
-        setStatus("載入設備資料...");
-		initSidebarForm(); // ★ 加入這行，初始化編輯表單內容
+        initSidebarForm();
         loadFromLocalStorage(); maybeBackfillDefectUsage(); renderFolders(); renderDefectStats(); renderDefectGroups(); updateRecordMarkers(); refreshStorageStatus();
-        // Async: upgrade from localStorage to IndexedDB if needed
         migrateInspectionToIdb();
         syncMobileMapControls();
         try {
-          const { meta, points } = await tryFetchData();
-          state.meta = meta; state.points = points;
-          await cacheEquipmentData(meta, points);
-          fillAreas(); renderResults([]); await initCitySelector();
-          map.setView([23.7, 120.95], 8);
-          if (state.meta?.bounds) map.fitBounds(state.meta.bounds, { padding: [28, 28] });
-          renderer.redraw();
-          updateNetworkNotice();
+          await initCitySelector();
+          if (state.usePMTiles) {
+            scheduleSyncPMTiles(150);
+          }
           setStatus("");
         } catch (e) {
-          console.error(e);
-          try {
-            const cached = await getCachedEquipmentData();
-            if (!cached) throw e;
-            state.meta = cached.meta; state.points = cached.points;
-            fillAreas(); renderResults([]);
-            map.setView([23.7, 120.95], 8);
-            if (state.meta?.bounds) map.fitBounds(state.meta.bounds, { padding: [28, 28] });
-            renderer.redraw();
-            setOfflineNotice(`離線降級模式：已使用 ${formatDateTime(cached.cachedAt)} 的設備資料。紀錄、照片與備份仍可使用；地圖底圖可能無法載入。`);
-            setStatus("");
-          } catch (cacheError) {
-            setStatus("⚠️ 設備資料載入失敗：" + e.message);
-          }
+          console.error("初始化選單失敗：", e);
+          setStatus("");
         }
+        updateNetworkNotice();
         await checkForSavedDraft();
       }
 
       init();
 
       if ('serviceWorker' in navigator) {
-        let refreshingForServiceWorker = false;
-        const pwaBanner = document.getElementById('pwaUpdateBanner');
-        const pwaReloadBtn = document.getElementById('pwaUpdateReload');
-        const pwaDismissBtn = document.getElementById('pwaUpdateDismiss');
-        let pendingRegistration = null;
-        function showPWAUpdateBanner(registration) {
-          if (!pwaBanner || pwaBanner.hidden === false) return;
-          if (sessionStorage.getItem('v2-pwa-dismissed')) return;
-          pendingRegistration = registration;
-          pwaBanner.hidden = false;
-        }
-        pwaDismissBtn?.addEventListener('click', () => {
-          if (pwaBanner) pwaBanner.hidden = true;
-          try { sessionStorage.setItem('v2-pwa-dismissed', '1'); } catch (e) {}
-        });
-        pwaReloadBtn?.addEventListener('click', () => {
-          if (pendingRegistration?.waiting) {
-            pendingRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
-          } else {
-            window.location.reload();
+        if (import.meta.env.DEV) {
+          // 本機 Vite 開發環境下，強制註銷 Service Worker 並清除快取，避免快取衝突與重載迴圈
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            for (const reg of regs) reg.unregister();
+          });
+          if (window.caches) {
+            caches.keys().then(keys => {
+              for (const key of keys) caches.delete(key);
+            });
           }
-        });
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (refreshingForServiceWorker) return;
-          refreshingForServiceWorker = true;
-          window.location.reload();
-        });
+        } else {
+          const pwaBanner = document.getElementById('pwaUpdateBanner');
+          const pwaReloadBtn = document.getElementById('pwaUpdateReload');
+          const pwaDismissBtn = document.getElementById('pwaUpdateDismiss');
+          let pendingRegistration = null;
+          function showPWAUpdateBanner(registration) {
+            if (!pwaBanner || pwaBanner.hidden === false) return;
+            if (sessionStorage.getItem('v2-pwa-dismissed')) return;
+            pendingRegistration = registration;
+            pwaBanner.hidden = false;
+          }
+          pwaDismissBtn?.addEventListener('click', () => {
+            if (pwaBanner) pwaBanner.hidden = true;
+            try { sessionStorage.setItem('v2-pwa-dismissed', '1'); } catch (e) {}
+          });
+          pwaReloadBtn?.addEventListener('click', () => {
+            if (pendingRegistration?.waiting) {
+              pendingRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+            } else {
+              window.location.reload();
+            }
+          });
 
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./service-worker.js?rev=22', { scope: './' })
-            .then((registration) => {
-              console.log('✅ PWA 離線核心註冊成功，範圍:', registration.scope);
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./service-worker.js?rev=23', { scope: './' })
+              .then((registration) => {
+                if (registration.waiting) {
+                  showPWAUpdateBanner(registration);
+                }
 
-              if (registration.waiting) {
-                showPWAUpdateBanner(registration);
-              }
-
-              registration.addEventListener('updatefound', () => {
-                const worker = registration.installing;
-                if (!worker) return;
-                worker.addEventListener('statechange', () => {
-                  if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-                    showPWAUpdateBanner(registration);
-                  }
+                registration.addEventListener('updatefound', () => {
+                  const worker = registration.installing;
+                  if (!worker) return;
+                  worker.addEventListener('statechange', () => {
+                    if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                      showPWAUpdateBanner(registration);
+                    }
+                  });
                 });
-              });
-            })
-            .catch(err => console.log('❌ PWA 註冊失敗:', err));
-        });
+              })
+              .catch(err => console.log('PWA 註冊失敗:', err));
+          });
+        }
       }
-    

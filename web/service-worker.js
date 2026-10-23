@@ -59,6 +59,8 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
+  const reqUrl = new URL(request.url);
+  if (reqUrl.port === "5173" || reqUrl.hostname === "localhost" || reqUrl.hostname === "127.0.0.1") return;
   const isV2Navigation = request.mode === "navigate"
     && (/\/index\.html$|\/indexV2\.html$/).test(new URL(request.url).pathname);
   const url = new URL(request.url);

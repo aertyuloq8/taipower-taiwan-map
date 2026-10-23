@@ -1,6 +1,6 @@
 {
-  "name": "土木設備分布地圖",
-  "short_name": "設備地圖",
+  "name": "全台土部設備分布地圖",
+  "short_name": "全台土部",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

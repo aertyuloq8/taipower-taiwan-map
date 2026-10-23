@@ -19,8 +19,13 @@ data/processed/cities/
 data/processed/taiwan_poles.geojsonseq
 data/points.json
 
+# Large Datasets, Databases & Binaries (透過 GitHub Release 託管，避免超出 GitHub 100MB 單檔限制)
+data/*.pmtiles
+data/*.db
+data/processed/
+tools/pmtiles_bin/
+
 # 保留重要產出
-!data/*.pmtiles
 !data/meta.json
 !data/processed/cities_meta.json
 
