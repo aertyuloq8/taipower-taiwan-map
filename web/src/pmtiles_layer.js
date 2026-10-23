@@ -4,9 +4,26 @@
  * 2. Canvas 繪製實心前綴彩色圓點 + 白色描邊 (避免任何圖磚邊界裁切)
  * 3. 提供 getVisiblePolesInBounds 供上層 Leaflet DOM 標籤層與路線圖層 (RouteLayer) 完美聯動
  */
-import { PMTiles } from "pmtiles";
-import { PbfReader } from "pbf";
-import { VectorTile } from "@mapbox/vector-tile";
+let PMTilesClass = null;
+let PbfClass = null;
+let VectorTileClass = null;
+
+async function ensureDeps() {
+  if (PMTilesClass && PbfClass && VectorTileClass) return;
+  try {
+    const [pmMod, pbfMod, vtMod] = await Promise.all([
+      import("https://esm.sh/pmtiles@3.2.0"),
+      import("https://esm.sh/pbf@3.3.0"),
+      import("https://esm.sh/@mapbox/vector-tile@1.3.1")
+    ]);
+    PMTilesClass = pmMod.PMTiles || pmMod.default?.PMTiles || pmMod.default;
+    PbfClass = pbfMod.default || pbfMod.Pbf || pbfMod;
+    VectorTileClass = vtMod.VectorTile || vtMod.default?.VectorTile || vtMod.default;
+  } catch (err) {
+    console.error("載入 PMTiles / Pbf / VectorTile 失敗：", err);
+    throw err;
+  }
+}
 
 function hashText(value) {
   let hash = 0;
@@ -51,7 +68,14 @@ function latLng2Tile(lat, lng, zoom) {
 }
 
 export function createPMTilesLayer(pmtilesUrl, options = {}) {
-  const pmtiles = new PMTiles(pmtilesUrl);
+  let pmtiles = null;
+  async function getPMTilesInstance() {
+    if (!pmtiles) {
+      await ensureDeps();
+      pmtiles = new PMTilesClass(pmtilesUrl);
+    }
+    return pmtiles;
+  }
 
   const tileCache = new Map();
   const CACHE_LIMIT = 200;
@@ -61,14 +85,15 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
     if (tileCache.has(key)) return tileCache.get(key);
 
     try {
-      const resp = await pmtiles.getZxy(z, x, y);
+      const pm = await getPMTilesInstance();
+      const resp = await pm.getZxy(z, x, y);
       if (!resp || !resp.data) {
         tileCache.set(key, []);
         return [];
       }
 
-      const pbf = new PbfReader(resp.data);
-      const vt = new VectorTile(pbf);
+      const pbf = new PbfClass(resp.data);
+      const vt = new VectorTileClass(pbf);
       const layer = vt.layers["poles"];
       if (!layer) {
         tileCache.set(key, []);
