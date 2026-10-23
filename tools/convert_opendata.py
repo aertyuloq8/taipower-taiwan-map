@@ -171,6 +171,29 @@ def main():
     meta_path.write_text(json.dumps(city_meta, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"各縣市 JSON 已產出至：{city_dir}")
 
+    # 若有資料，建立根目錄 data/meta.json 與 data/points.json 供前端直接測試載入
+    if city_buckets:
+        first_city = list(city_buckets.keys())[0]
+        test_poles = city_buckets[first_city]
+        lats = [p["lat"] for p in test_poles]
+        lngs = [p["lng"] for p in test_poles]
+        area_counter = defaultdict(int)
+        for p in test_poles:
+            area_counter[p.get("area") or "未分類"] += 1
+        areas_list = [{"name": k, "count": v} for k, v in sorted(area_counter.items(), key=lambda x: x[1], reverse=True)]
+
+        root_meta = {
+            "source": f"{first_city}開放資料",
+            "totalRows": len(test_poles),
+            "converted": len(test_poles),
+            "bounds": [[min(lats), min(lngs)], [max(lats), max(lngs)]],
+            "areas": areas_list,
+            "pointsHash": f"{first_city}_{len(test_poles)}",
+        }
+        (DATA_DIR / "meta.json").write_text(json.dumps(root_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        (DATA_DIR / "points.json").write_text(json.dumps(test_poles, ensure_ascii=False), encoding="utf-8")
+        print(f"已同步建立前端預設載入檔：data/meta.json 與 data/points.json（載入【{first_city}】共 {len(test_poles):,} 筆）")
+
 
 if __name__ == "__main__":
     main()
