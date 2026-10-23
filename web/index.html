@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>土木設備分布地圖</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+    <link rel="stylesheet" href="cadastre.css" />
+    <script type="module" src="./src/utils/cdn.js"></script>
+
+    <link rel="stylesheet" href="./src/styles/main.css" />
+  </head>
+
+  <body>
+    <div id="pwaUpdateBanner" class="pwa-update-banner" hidden>
+      <span>有新版本可用</span>
+      <button id="pwaUpdateReload" type="button">重新載入</button>
+      <button id="pwaUpdateDismiss" type="button" aria-label="關閉">×</button>
+    </div>
+    <div id="globalModal" class="custom-modal-overlay">
+      <div class="custom-modal-box">
+        <h3 id="gmTitle" style="margin-top:0; font-size:18px; font-weight:900; color:var(--text);"></h3>
+        <p id="gmContent" style="margin:10px 0 15px; font-size:14px; color:var(--muted); line-height:1.5;"></p>
+        <div id="gmInputWrapper" style="display:none; flex-direction:column; gap:8px; margin-bottom:15px;">
+          <input type="text" id="gmInput"
+            style="width:100%; padding:10px; border:1px solid #ccc; border-radius:6px; box-sizing:border-box;" />
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px; color:var(--muted); font-weight:bold;">📅 插入日期：</span>
+            <input type="date" id="gmDateInput"
+              style="padding:4px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px; cursor:pointer; color:var(--text); flex-grow:1;" />
+          </div>
+        </div>
+        <select id="gmSelect"
+          style="width:100%; padding:10px; margin-bottom:15px; border:1px solid #ccc; border-radius:6px; display:none;"></select>
+        <div id="gmActions" class="gm-actions">
+          <button id="gmDiscardBtn" class="gm-discard-btn" type="button">
+            捨棄草稿
+          </button>
+          <button id="gmCancelBtn"
+            style="padding:8px 16px; background:#e2e8f0; color:#333; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">
+            取消
+          </button>
+          <button id="gmConfirmBtn"
+            style="padding:8px 16px; background:var(--accent); color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">
+            確定
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="photoViewer" class="photo-viewer" role="dialog" aria-modal="true" aria-labelledby="photoViewerTitle" aria-hidden="true">
+      <section class="photo-viewer-dialog">
+        <header class="photo-viewer-head">
+          <strong id="photoViewerTitle">照片預覽</strong>
+          <button id="photoViewerClose" class="photo-viewer-close" type="button" aria-label="關閉照片預覽" title="關閉">&#215;</button>
+        </header>
+        <div class="photo-viewer-body">
+          <div class="photo-viewer-zoom-controls" aria-label="照片縮放控制">
+            <button id="photoViewerZoomOut" type="button" title="縮小照片" aria-label="縮小照片">−</button>
+            <button id="photoViewerZoomReset" type="button" title="回復適合視窗" aria-label="回復適合視窗">適合</button>
+            <button id="photoViewerZoomIn" type="button" title="放大照片" aria-label="放大照片">＋</button>
+          </div>
+          <img id="photoViewerImage" alt="巡檢照片預覽" />
+        </div>
+        <footer class="photo-viewer-foot">
+          <span id="photoViewerMeta"></span>
+          <div class="photo-viewer-actions">
+            <button id="photoViewerDownloadCard" class="photo-viewer-action photo-viewer-share-card" type="button" hidden>下載巡檢卡</button>
+            <button id="photoViewerCopy" class="photo-viewer-action" type="button">複製原圖</button>
+            <button id="photoViewerShare" class="photo-viewer-action photo-viewer-share-card" type="button">分享巡檢卡</button>
+            <button id="photoViewerShareOriginal" class="photo-viewer-action" type="button">分享原圖</button>
+            <a id="photoViewerDownload" class="photo-viewer-action photo-viewer-download" href="#">下載原圖</a>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div class="top-controls">
+      <button id="panelToggle" class="icon-button" type="button"
+        aria-expanded="false" title="展開面板"
+        style="box-shadow:0 8px 20px rgba(22,36,52,0.18)">≡</button>
+      <button id="mapSearchToggle" class="map-search-btn" type="button"
+        aria-expanded="false" aria-controls="mapSearchPanel" title="搜尋設備">🔍 設備</button>
+      <button id="v2CadastreToggle" class="map-search-btn" type="button"
+        aria-expanded="false" aria-controls="v2CadastrePanel" title="查詢地籍圖">🗺️ 地籍</button>
+      <button id="v2AddressToggle" class="map-search-btn" type="button"
+        aria-expanded="false" aria-controls="v2AddressPanel" title="查詢門牌地址">🏠 門牌</button>
+      <div class="layer-menu">
+        <button id="layerMenuToggle" class="layer-menu-toggle" type="button" aria-expanded="false" aria-controls="layerMenuPanel" title="圖層控制">
+          <span class="layer-menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>圖層</span>
+        </button>
+        <div id="layerMenuPanel" class="layer-menu-panel" hidden>
+          <div class="layer-menu-heading">圖層控制</div>
+          <div class="layer-menu-base-map">
+            <label for="baseMapSelect">底圖</label>
+            <select id="baseMapSelect" title="選擇底圖；同一時間只顯示一種底圖">
+              <option value="emap">臺灣通用電子地圖</option>
+              <option value="photo_mix">正射影像混合</option>
+              <option value="emap5">通用電子地圖(等高線+門牌)</option>
+              <option value="osm">OpenStreetMap</option>
+            </select>
+          </div>
+          <button id="toggleLabelsBtn" class="layer-menu-item" type="button" aria-pressed="true" title="顯示或隱藏標籤圖層">
+            <span class="layer-menu-item-name">標籤圖層</span>
+            <span id="labelsLayerState" class="layer-menu-item-state">顯示</span>
+          </button>
+          <button id="tpcGridToggle" class="layer-menu-item is-hidden" type="button" aria-pressed="false" title="顯示或隱藏圖號網格">
+            <span class="layer-menu-item-name">圖號網格</span>
+            <span id="tpcGridLayerState" class="layer-menu-item-state">隱藏</span>
+          </button>
+          <button id="routeLayerToggle" class="layer-menu-item is-hidden" type="button" aria-pressed="false" title="顯示或隱藏路線圖層">
+            <span class="layer-menu-item-name">路線圖層</span>
+            <span id="routeLayerState" class="layer-menu-item-state">隱藏</span>
+          </button>
+          <div class="layer-menu-heading" style="margin-top:6px;">疊加圖層</div>
+          <button id="overlayLANDSECTToggle" class="layer-menu-item is-hidden" type="button" aria-pressed="false" title="疊加段籍圖">
+            <span class="layer-menu-item-name">段籍圖</span>
+            <span id="overlayLANDSECTState" class="layer-menu-item-state">隱藏</span>
+          </button>
+          <button id="overlayTOWNToggle" class="layer-menu-item is-hidden" type="button" aria-pressed="false" title="疊加鄉鎮界">
+            <span class="layer-menu-item-name">鄉鎮界</span>
+            <span id="overlayTOWNState" class="layer-menu-item-state">隱藏</span>
+          </button>
+          <button id="overlayVillageToggle" class="layer-menu-item is-hidden" type="button" aria-pressed="false" title="疊加村里界">
+            <span class="layer-menu-item-name">村里界</span>
+            <span id="overlayVillageState" class="layer-menu-item-state">隱藏</span>
+          </button>
+          <button id="overlayROADToggle" class="layer-menu-item is-hidden" type="button" aria-pressed="false" title="疊加道路路網">
+            <span class="layer-menu-item-name">道路路網</span>
+            <span id="overlayROADState" class="layer-menu-item-state">隱藏</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mapSearchPanel" class="map-search-panel">
+      <div class="map-search-inner">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span style="font-weight:800; font-size:14px; color:var(--accent-dark)">🔍 搜尋設備</span>
+          <button id="mapSearchClose"
+            style="background:transparent; color:var(--muted); border:none; min-height:unset; padding:4px 8px; font-size:16px; cursor:pointer;">✕</button>
+        </div>
+        <nav class="v2-bookmark-tabs" role="tablist" aria-label="搜尋分頁">
+          <button class="v2-tab-btn is-active" data-search-tab="device" role="tab" aria-selected="true">🔍 設備</button>
+          <button class="v2-tab-btn" data-search-tab="coord" role="tab" aria-selected="false">📍 座標</button>
+        </nav>
+        <div data-search-pane="device" style="display:flex; flex-direction:column; gap:8px;">
+          <select id="areaSelect"><option value="">全部區域</option></select>
+          <input id="searchInput" type="search" placeholder="搜尋設備或圖號座標" autocomplete="off" />
+        </div>
+        <div class="map-search-coord-form" data-search-pane="coord" hidden>
+          <div class="coord-group">
+            <span class="coord-group-title">經緯度 WGS84（十進位）</span>
+            <div class="coord-row">
+              <label>經度 <input id="coordLng" type="search" inputmode="decimal" placeholder="120.196300" autocomplete="off" /></label>
+              <label>緯度 <input id="coordLat" type="search" inputmode="decimal" placeholder="22.991100" autocomplete="off" /></label>
+              <button id="coordLocateDecimal" type="button">定位</button>
+            </div>
+          </div>
+          <div class="coord-group">
+            <span class="coord-group-title">經緯度 WGS84（度分秒）</span>
+            <div class="coord-row">
+              <span class="coord-axis">E</span>
+              <input id="coordLngD" type="search" inputmode="decimal" placeholder="120" autocomplete="off" aria-label="經度度" /><span>°</span>
+              <input id="coordLngM" type="search" inputmode="decimal" placeholder="11" autocomplete="off" aria-label="經度分" /><span>′</span>
+              <input id="coordLngS" type="search" inputmode="decimal" placeholder="46.7" autocomplete="off" aria-label="經度秒" /><span>″</span>
+            </div>
+            <div class="coord-row">
+              <span class="coord-axis">N</span>
+              <input id="coordLatD" type="search" inputmode="decimal" placeholder="22" autocomplete="off" aria-label="緯度度" /><span>°</span>
+              <input id="coordLatM" type="search" inputmode="decimal" placeholder="59" autocomplete="off" aria-label="緯度分" /><span>′</span>
+              <input id="coordLatS" type="search" inputmode="decimal" placeholder="28" autocomplete="off" aria-label="緯度秒" /><span>″</span>
+            </div>
+            <button id="coordLocateDms" type="button">定位</button>
+          </div>
+          <div class="coord-group">
+            <span class="coord-group-title">TWD97 座標（121 分帶）</span>
+            <div class="coord-row">
+              <label>E <input id="coordTwd97E" type="search" inputmode="decimal" placeholder="171709" autocomplete="off" /></label>
+              <label>N <input id="coordTwd97N" type="search" inputmode="decimal" placeholder="2543727" autocomplete="off" /></label>
+              <button id="coordLocateTwd97" type="button">定位</button>
+            </div>
+          </div>
+          <p id="coordStatus" class="coord-status" aria-live="polite"></p>
+        </div>
+      </div>
+      <div class="map-search-stats" data-search-pane="device">
+        <span>總點位 <strong id="totalCount">--</strong></span>
+        <span>視窗內 <strong id="visibleCount">--</strong></span>
+        <span>標籤數 <strong id="drawCount">--</strong></span>
+      </div>
+      <div id="results" class="map-search-results" data-search-pane="device"></div>
+    </div>
+
+    <section id="v2CadastrePanel" class="v2-cadastre-panel" aria-hidden="true" aria-label="地籍圖查詢">
+      <div class="v2-cadastre-inner">
+        <header class="v2-cadastre-head">
+          <span class="v2-cadastre-title">🗺️ 地籍圖查詢</span>
+          <button id="v2CadastreClose" class="v2-cadastre-close" type="button" title="關閉地籍圖查詢" aria-label="關閉地籍圖查詢">×</button>
+        </header>
+        <nav class="v2-bookmark-tabs" role="tablist" aria-label="地籍分頁">
+          <button class="v2-tab-btn is-active" data-tab="search" data-panel="cadastre" role="tab" aria-selected="true">🔍 查詢</button>
+          <button class="v2-tab-btn" data-tab="bookmarks" data-panel="cadastre" role="tab" aria-selected="false">⭐ 收藏 <span class="v2-tab-count" id="v2CadastreCount">0</span></button>
+        </nav>
+        <div class="v2-tab-pane is-active" data-pane="search" data-panel="cadastre">
+        <p class="v2-cadastre-description">固定查詢臺南市。地段可輸入關鍵字或從清單選取，再輸入地號即可套繪地籍範圍。</p>
+        <form id="v2CadastreForm" class="v2-cadastre-form" novalidate>
+          <div class="v2-cadastre-field">
+            <span class="v2-cadastre-fixed-label">縣市</span>
+            <div class="v2-cadastre-fixed-value" aria-label="固定縣市：臺南市">臺南市 <span>固定</span></div>
+          </div>
+          <div class="v2-cadastre-field">
+            <label for="v2CadastreTown">鄉鎮市區</label>
+            <select id="v2CadastreTown" disabled>
+              <option value="">載入行政區中…</option>
+            </select>
+          </div>
+          <div class="v2-cadastre-field">
+            <label for="v2CadastreSectionSearch">地段關鍵字</label>
+            <input id="v2CadastreSectionSearch" type="search" placeholder="請先選擇行政區" autocomplete="off" disabled aria-controls="v2CadastreMatches" aria-expanded="false" />
+            <input id="v2CadastreSection" type="hidden" value="" />
+            <div id="v2CadastreMatches" class="v2-cadastre-matches" role="listbox" hidden></div>
+            <p id="v2CadastreHint" class="v2-cadastre-hint">請先選擇行政區。</p>
+            <label class="v2-cadastre-choice-label" for="v2CadastreSectionSelect">地段清單選取</label>
+            <select id="v2CadastreSectionSelect" disabled>
+              <option value="">請先選擇行政區</option>
+            </select>
+          </div>
+          <div class="v2-cadastre-field">
+            <label for="v2CadastreParcel">地號</label>
+            <input id="v2CadastreParcel" type="text" inputmode="text" placeholder="例如 10、10-1 或 00000010" autocomplete="off" />
+            <p class="v2-cadastre-help">輸入母號或母號－子號；系統會轉為官方八碼地號。</p>
+          </div>
+          <div class="v2-cadastre-actions">
+            <button id="v2CadastreSubmit" class="v2-cadastre-action" type="submit">定位並套繪地籍範圍</button>
+            <button id="v2CadastreClear" class="v2-cadastre-action is-secondary" type="button">清除地籍圖層</button>
+          </div>
+        </form>
+        <p id="v2CadastreStatus" class="v2-cadastre-status" aria-live="polite"></p>
+        <div id="v2CadastreResult" class="v2-cadastre-result" hidden></div>
+        </div>
+        <div class="v2-tab-pane" data-pane="bookmarks" data-panel="cadastre" hidden>
+          <div class="v2-bookmark-toolbar">
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;"><input type="checkbox" id="v2CadastreSelectAll"> 全選</label>
+            <span class="v2-bookmark-count">已收藏 <strong id="v2CadastreBookmarksCount">0</strong> 筆</span>
+            <button id="v2CadastreBookmarksToggle" class="v2-bookmark-toggle" type="button">👁️ 全部隱藏</button>
+            <button id="v2CadastreBookmarksDelete" class="v2-bookmark-delete" type="button" disabled style="background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;border-radius:6px;min-height:28px;padding:4px 8px;font-size:12px;font-weight:800;cursor:pointer;">🗑️ 刪除所選</button>
+          </div>
+          <div class="v2-bookmark-toolbar" style="border-bottom:none; padding-top:4px;">
+            <button id="v2CadastreDriveUpload" class="v2-bookmark-drive" type="button" style="background:#fff7ed;color:#c2410c;border:1px dashed #c2410c;border-radius:6px;min-height:28px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer;">☁️ 上傳到 Drive</button>
+            <button id="v2CadastreDriveRestore" class="v2-bookmark-drive" type="button" style="background:#fff7ed;color:#c2410c;border:1px dashed #c2410c;border-radius:6px;min-height:28px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer;">☁️ 從 Drive 還原</button>
+            <button id="v2CadastreDriveDelete" class="v2-bookmark-drive" type="button" style="background:#fef2f2;color:#dc2626;border:1px dashed #dc2626;border-radius:6px;min-height:28px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer;">🗑 刪除雲端備份</button>
+          </div>
+          <div id="v2CadastreBookmarks" class="v2-bookmark-list"></div>
+        </div>
+        <p class="v2-cadastre-disclaimer">地籍圖資僅供參考，實際權利範圍與登記資料應以主管機關正式文件為準。</p>
+      </div>
+    </section>
+
+    <section id="v2AddressPanel" class="v2-address-panel" aria-hidden="true" aria-label="門牌地址查詢">
+      <div class="v2-address-inner">
+        <header class="v2-address-head">
+          <span class="v2-address-title">🏠 門牌地址查詢</span>
+          <button id="v2AddressClose" class="v2-address-close" type="button" title="關閉門牌地址查詢" aria-label="關閉門牌地址查詢">×</button>
+        </header>
+        <nav class="v2-bookmark-tabs" role="tablist" aria-label="門牌分頁">
+          <button class="v2-tab-btn is-active" data-tab="search" data-panel="address" role="tab" aria-selected="true">🔍 查詢</button>
+          <button class="v2-tab-btn" data-tab="bookmarks" data-panel="address" role="tab" aria-selected="false">⭐ 收藏 <span class="v2-tab-count" id="v2AddressCount">0</span></button>
+        </nav>
+        <div class="v2-tab-pane is-active" data-pane="search" data-panel="address">
+        <p class="v2-address-warning">門牌地址僅供參考！實際位置請依政府電子門牌為準</p>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="addrSearchInput" type="search" placeholder="搜尋門牌地址" autocomplete="off" aria-controls="addrSearchResults" style="flex:1;min-width:0;" />
+          <button id="addrSearchBtn" type="button" style="flex-shrink:0;background:#0f766e;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">搜尋</button>
+        </div>
+        <p id="addrSearchStatus" class="v2-address-status" aria-live="polite"></p>
+        <div id="addrSearchResults" class="v2-address-results" role="listbox"></div>
+        </div>
+        <div class="v2-tab-pane" data-pane="bookmarks" data-panel="address" hidden>
+          <div class="v2-bookmark-toolbar">
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;"><input type="checkbox" id="v2AddressSelectAll"> 全選</label>
+            <span class="v2-bookmark-count">已收藏 <strong id="v2AddressBookmarksCount">0</strong> 筆</span>
+            <button id="v2AddressBookmarksToggle" class="v2-bookmark-toggle" type="button">👁️ 全部隱藏</button>
+            <button id="v2AddressBookmarksDelete" class="v2-bookmark-delete" type="button" disabled style="background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;border-radius:6px;min-height:28px;padding:4px 8px;font-size:12px;font-weight:800;cursor:pointer;">🗑️ 刪除所選</button>
+          </div>
+          <div class="v2-bookmark-toolbar" style="border-bottom:none; padding-top:4px;">
+            <button id="v2AddressDriveUpload" class="v2-bookmark-drive" type="button" style="background:#fff7ed;color:#c2410c;border:1px dashed #c2410c;border-radius:6px;min-height:28px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer;">☁️ 上傳到 Drive</button>
+            <button id="v2AddressDriveRestore" class="v2-bookmark-drive" type="button" style="background:#fff7ed;color:#c2410c;border:1px dashed #c2410c;border-radius:6px;min-height:28px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer;">☁️ 從 Drive 還原</button>
+            <button id="v2AddressDriveDelete" class="v2-bookmark-drive" type="button" style="background:#fef2f2;color:#dc2626;border:1px dashed #dc2626;border-radius:6px;min-height:28px;padding:4px 10px;font-size:12px;font-weight:800;cursor:pointer;">🗑 刪除雲端備份</button>
+          </div>
+          <div id="v2AddressBookmarks" class="v2-bookmark-list"></div>
+        </div>
+        <p class="v2-address-disclaimer">門牌地址僅供參考！實際位置請依政府電子門牌為準</p>
+      </div>
+    </section>
+
+    <section id="v2SyncPanel" class="v2-sync-panel" aria-hidden="true" aria-label="裝置同步">
+      <div class="v2-sync-inner">
+        <header class="v2-sync-head">
+          <span class="v2-sync-title">📡 裝置同步</span>
+          <button id="v2SyncClose" class="v2-sync-close" type="button" title="關閉裝置同步" aria-label="關閉裝置同步">×</button>
+        </header>
+        <p class="v2-sync-intro">兩台裝置都開啟本頁後，任一方按「重新產生」取得配對碼，另一方輸入同一組 6 位配對碼（手機可掃描 QR）即可連線。資料直接在兩台裝置間傳送，不經過任何伺服器。</p>
+        <div class="v2-sync-options">
+          <label><input type="checkbox" id="v2SyncSend" checked /> 傳送本機資料</label>
+          <label><input type="checkbox" id="v2SyncRecv" checked /> 接收對端資料</label>
+        </div>
+        <div class="v2-sync-limit">
+          <label for="v2SyncMaxMb">同步大小上限</label>
+          <input type="number" id="v2SyncMaxMb" min="10" max="2048" step="10" value="200" inputmode="numeric" />
+          <span>MB</span>
+        </div>
+        <div class="v2-sync-pair">
+          <div class="v2-sync-host">
+            <div class="v2-sync-host-code">
+              <div id="v2SyncQr"></div>
+              <div>
+                <span class="v2-sync-code-label">我的配對碼</span>
+                <strong id="v2SyncCode" class="v2-sync-code">--------</strong>
+              </div>
+            </div>
+            <button id="v2SyncRegen" class="v2-sync-mini-btn" type="button">重新產生</button>
+          </div>
+          <div class="v2-sync-join">
+            <label for="v2SyncJoinInput">輸入對方配對碼</label>
+            <div class="v2-sync-join-row">
+              <input id="v2SyncJoinInput" type="text" maxlength="6" placeholder="6 碼，例如 7K3QZP" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+              <button id="v2SyncScanBtn" class="is-secondary" type="button" hidden>掃 QR</button>
+              <button id="v2SyncJoinBtn" type="button">連線</button>
+            </div>
+          </div>
+        </div>
+        <video id="v2SyncScanVideo" class="v2-sync-scan-video" hidden playsinline></video>
+        <p id="v2SyncStatus" class="v2-sync-status" aria-live="polite"></p>
+        <div id="v2SyncProgress" class="v2-sync-progress" hidden>
+          <div class="v2-sync-progress-bar"><div id="v2SyncProgressFill" class="v2-sync-progress-fill"></div></div>
+          <span id="v2SyncProgressText" class="v2-sync-progress-text"></span>
+        </div>
+        <div id="v2SyncSnapshot" class="v2-sync-snapshot" hidden>
+          <span id="v2SyncSnapshotText" class="v2-sync-snapshot-text"></span>
+          <button id="v2SyncSnapshotRestore" class="v2-sync-mini-btn" type="button">↩ 還原</button>
+        </div>
+        <p class="v2-sync-disclaimer">傳輸上限由雙方設定的較小值決定；超過上限會拒絕傳輸。配對碼為臨時身分，僅供本次連線使用，連線結束或關閉面板即失效。</p>
+      </div>
+    </section>
+
+    <main class="app is-panel-collapsed">
+      <aside id="panel" class="panel is-collapsed">
+        <div id="panelDragHandle" class="panel-drag-handle" aria-hidden="true"><span class="panel-drag-handle-bar"></span></div>
+        <header class="panel-head">
+          <div class="panel-title"><h1>土木設備分布地圖</h1></div>
+          <button id="panelCloseButton" class="panel-collapse-button" type="button" aria-label="收合巡檢紀錄面板" title="收合巡檢紀錄面板">▼</button>
+        </header>
+        <nav class="tab-nav">
+          <button class="tab-btn is-active" id="tabRecordsBtn">📋 巡視紀錄</button>
+          <button class="tab-btn" id="tabStatsBtn">📊 不良統計</button>
+          <button class="tab-btn" id="tabPhotosBtn">📷 照片瀏覽</button>
+          <button class="tab-btn" id="tabEditBtn">📝 編輯紀錄</button>
+        </nav>
+
+        <div id="tabStats" class="tab-content" style="flex-direction:column; min-height:0;">
+          <div id="defectStatsContent" style="flex:1; overflow-y:auto; padding:14px 18px;"></div>
+          <div style="flex-shrink:0; display:flex; justify-content:flex-end; gap:6px; padding:8px 12px; border-top:1px solid var(--line); background:#fff;">
+            <button id="statsScrollTopBtn" style="min-height:32px; padding:0 14px; font-size:13px; background:#f1f5f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:20px; font-weight:bold;">▲ 頂部</button>
+            <button id="statsScrollBotBtn" style="min-height:32px; padding:0 14px; font-size:13px; background:#f1f5f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:20px; font-weight:bold;">▼ 底部</button>
+          </div>
+        </div>
+
+        <div id="tabPhotos" class="tab-content" style="flex-direction:column; min-height:0;">
+          <div class="photo-browser">
+            <div class="photo-browser-toolbar">
+              <input id="photoBrowserSearch" type="search" placeholder="搜尋設備 / 圖號 / 資料夾" autocomplete="off" style="flex:1; min-width:180px;">
+              <select id="photoBrowserFolderFilter" style="min-width:180px;">
+                <option value="">全部資料夾</option>
+              </select>
+            </div>
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center;">
+              <div style="font-size:12px; color:var(--muted);">點擊照片可開啟原圖，縮圖會在滑到附近時載入。</div>
+              <div style="font-size:12px; color:var(--accent-dark); font-weight:800;">照片 <span id="photoBrowserCount">0</span> 張</div>
+            </div>
+            <div class="photo-browser-batch-actions">
+              <span id="photoBrowserSelectedCount">未選取照片</span>
+              <div>
+                <button id="photoBrowserSelectAllBtn" type="button">全部選取</button>
+                <button id="photoBrowserDeleteSelectedBtn" type="button" disabled>刪除所選</button>
+                <button id="photoBrowserDeleteAllBtn" type="button">刪除全部照片</button>
+              </div>
+            </div>
+            <div id="photoBrowserGrid" class="photo-browser-grid"></div>
+          </div>
+          <div class="tab-scroll-controls" aria-label="照片瀏覽捲動控制">
+            <button id="photoScrollTopBtn" type="button">▲ 頂部</button>
+            <button id="photoScrollBotBtn" type="button">▼ 底部</button>
+          </div>
+        </div>
+
+        <div id="tabRecords" class="tab-content is-active">
+          <section class="folders-section" aria-label="巡視紀錄">
+            <details class="panel-fold" id="recordsToolsFold">
+              <summary>🧰 資料備份與還原</summary>
+              <div class="panel-fold-body">
+                <div class="folder-btn-group">
+                  <button id="addFolderBtn" class="btn-action btn-add-folder">+ 新增最上層資料夾</button>
+                  <button id="importCsvBtn" class="btn-action btn-import-csv" title="支援 .xlsx, .xls, .csv">📥 匯入 Excel</button>
+                  <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls,.xlsm" style="display:none" />
+                </div>
+                <div class="folder-btn-group">
+                  <button id="exportSystemBtn" class="btn-action btn-export-zip" title="下載紀錄、Excel 與照片的完整 ZIP 備份">💾 完整備份</button>
+                  <button id="importSystemBtn" class="btn-action btn-import-zip" title="從完整 ZIP 或舊版 JSON 備份還原">📂 資料還原</button>
+                  <input type="file" id="importSystemInput" accept=".zip,.zip.enc,.json" style="display:none" />
+                </div>
+                <div class="folder-btn-group">
+                  <button id="driveBackupBtn" class="btn-action btn-drive" title="將完整備份 ZIP 上傳到個人 Google 雲端硬碟（需 Google 帳號登入）">☁️ 備份到 Drive</button>
+                  <button id="driveRestoreBtn" class="btn-action btn-drive" title="從 Google 雲端硬碟下載完整備份 ZIP 並還原">☁️ 從 Drive 還原</button>
+                </div>
+                <div class="folder-btn-group">
+                  <button id="driveDeleteBtn" class="btn-action btn-drive-delete" title="刪除個人雲端硬碟中的備份 ZIP（本機不受影響）">🗑 刪除雲端備份</button>
+                  <button id="v2SyncToggle" class="btn-action btn-sync" title="兩台裝置直接傳輸資料，不需帳號與伺服器">📡 裝置同步</button>
+                </div>
+                <div id="backupProgress" class="v2-sync-progress" hidden>
+                  <div class="v2-sync-progress-bar"><div id="backupProgressFill" class="v2-sync-progress-fill"></div></div>
+                  <span id="backupProgressText" class="v2-sync-progress-text"></span>
+                </div>
+              </div>
+            </details>
+            <details class="panel-fold" id="storageHealthFold">
+              <summary>💾 資料儲存空間</summary>
+              <div class="panel-fold-body">
+                <section class="storage-health" aria-label="裝置儲存狀態">
+                  <div class="storage-health-head">
+                    <strong>裝置儲存</strong>
+                    <button id="storageRefreshBtn" class="storage-refresh-button" type="button" title="更新儲存狀態" aria-label="更新儲存狀態">↻</button>
+                  </div>
+                  <div class="storage-health-values">
+                    <span class="storage-health-value">照片目前使用<strong id="photoStorageUsage">讀取中</strong></span>
+                    <span class="storage-health-value">瀏覽器估算額度<strong id="storageQuota">讀取中</strong></span>
+                    <span class="storage-health-value">尚可使用<strong id="storageAvailable">讀取中</strong></span>
+                    <span class="storage-health-value">離線快取<strong id="offlineCacheUsage">讀取中</strong></span>
+                  </div>
+                  <div id="storageWarning" class="storage-warning" hidden></div>
+                  <div id="storagePersistenceStatus" class="storage-persistence">資料保護：檢查中</div>
+                  <div id="backupSummary" class="backup-summary">最近一次備份：尚未建立</div>
+                  <div class="storage-health-actions">
+                    <button id="requestPersistentStorageBtn" class="storage-persist-button" type="button">保護此裝置資料</button>
+                  </div>
+                </section>
+              </div>
+            </details>
+            <div style="border-top:1px solid var(--line); margin:6px 0 10px;"></div>
+            <div class="folder-header">
+              <div style="display:flex; gap:8px; width:100%; justify-content:space-between;">
+                <span style="font-weight:bold; font-size:14px">巡檢標記：</span>
+                <div>
+                  <button id="showAllStarsBtn" class="text-button" style="font-size:12px; margin-right:8px">全部顯示👁️</button>
+                  <button id="hideAllStarsBtn" class="text-button" style="font-size:12px">全部隱藏🙈</button>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:8px 12px; border-radius:6px; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px">
+                <button id="selectAllBtn" style="background:#0f766e; color:white; border:none; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:bold; cursor:pointer; min-height:0;">全選 ☑️</button>
+                <span style="color:#b91c1c; font-size:13px; font-weight:bold">已選：<span id="selectedCount">0 項</span></span>
+              </div>
+              <div id="batchActionGroup" style="display:none; gap:6px; flex-wrap:wrap">
+                <button id="batchExportBtn" title="匯出勾選資料，可選擇 Excel 或 ZIP" style="background:#16a34a; color:white; border:none; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:bold; cursor:pointer; min-height:0;">匯出 📤</button>
+                <button id="batchMoveBtn"   style="background:#2563eb; color:white; border:none; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:bold; cursor:pointer; min-height:0;">移動 🚚</button>
+                <button id="batchDeleteBtn" style="background:#dc2626; color:white; border:none; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:bold; cursor:pointer; min-height:0;">刪除 🗑️</button>
+              </div>
+            </div>
+            <div id="folderList" class="folder-list"></div>
+          </section>
+          <div style="flex-shrink:0; display:flex; justify-content:flex-end; gap:6px; padding:8px 12px; border-top:1px solid var(--line); background:#fff;">
+            <button id="scrollTopBtn" style="min-height:32px; padding:0 14px; font-size:13px; background:#f1f5f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:20px; font-weight:bold;">▲ 頂部</button>
+            <button id="scrollBotBtn" style="min-height:32px; padding:0 14px; font-size:13px; background:#f1f5f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:20px; font-weight:bold;">▼ 底部</button>
+          </div>
+        </div>
+
+        <div id="tabEdit" class="tab-content" style="flex-direction:column; min-height:0;">
+          <div style="padding:12px 18px; border-bottom:1px solid var(--line); background:#f8fafc; flex-shrink:0;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+              <div style="min-width:0; flex-grow:1;">
+                <h2 id="editPanelTitle" style="font-size:16px; color:var(--accent-dark); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">請選擇設備</h2>
+                <div id="editPanelMeta" style="font-size:11px; color:var(--muted);">在地圖點擊進行編輯</div>
+                <div id="editUnsavedBadge" class="edit-unsaved-badge" hidden>尚有未儲存變更</div>
+              </div>
+              <div id="editPanelActions" style="display:none; flex-direction:row; gap:6px; flex-shrink:0; align-items:center;">
+                <a id="sidebarNavBtn" href="#" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; padding:4px 8px; background:#eef8f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:4px; text-decoration:none; font-size:12px; font-weight:bold; transition:0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#fff';" onmouseout="this.style.background='#eef8f9'; this.style.color='var(--accent-dark)';">🗺️ 導航</a>
+              </div>
+            </div>
+            <div id="editPanelWarning" style="margin-top:6px;"></div>
+            <input type="hidden" id="editLat">
+            <input type="hidden" id="editLng">
+            <input type="hidden" id="editCode">
+            <input type="hidden" id="editRecordId">
+          </div>
+
+          <div id="editFormScrollArea" style="flex:1; overflow-y:auto; padding:14px 18px; position:relative;">
+            <div id="editFormContainer" style="display:none; flex-direction:column; gap:8px;">
+              <label style="font-size:12px; font-weight:bold;">🏷️ 設備名稱
+                <input id="sidebar-name-input" type="text" style="width:100%; min-height:32px; padding:4px 8px; font-size:13px; margin-top:3px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+              </label>
+              <div style="margin-top:4px; padding:6px; background:#fef2f2; border:1px dashed #fca5a5; border-radius:4px;">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <input type="checkbox" id="sidebar-correction-flag" style="width:16px; height:16px; cursor:pointer;">
+                  <span style="font-size:12px; color:#b91c1c; font-weight:bold;">⚠️ 現場圖號座標不符</span>
+                </label>
+                <div id="sidebar-correct-code-container" style="display:none; margin-top:6px; gap:4px;">
+                  <input type="text" id="sidebar-correct-code-input" placeholder="請填寫正確的圖號座標..." style="width:100%; min-height:28px; padding:4px 8px; font-size:12px; border:1px solid #fca5a5; border-radius:4px; box-sizing:border-box;">
+                  <button type="button" id="btn-fill-gps-code" style="white-space:nowrap; background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; border-radius:4px; font-size:12px; padding:0 8px; cursor:pointer; font-weight:bold; transition:all 0.2s;">📍 定位帶入</button>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <label style="font-size:12px; font-weight:bold; flex:2;">📁 存入資料夾
+                  <select id="sidebar-folder" style="width:100%; min-height:32px; padding:4px 6px; font-size:13px; margin-top:3px; border:1px solid #ccc; border-radius:4px;"></select>
+                </label>
+                <label style="font-size:12px; font-weight:bold; flex:1;">🚦 緩急
+                  <select id="sidebar-urgency" style="width:100%; min-height:32px; padding:4px 6px; font-size:13px; margin-top:3px; border:1px solid #ccc; border-radius:4px;">
+                    <option value="A">A:極嚴重</option>
+                    <option value="B">B:次嚴重</option>
+                    <option value="C">C:較輕</option>
+                    <option value="D">D:當場處理</option>
+                  </select>
+                </label>
+              </div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:8px;">
+                <label style="font-size:12px; font-weight:bold;">🔧 不良項目</label>
+                <button type="button" id="defectEditToggle" style="border:1px dashed #94a3b8; background:#f8fafc; color:#475569; font-size:12px; font-weight:bold; padding:4px 10px; border-radius:4px; cursor:pointer;">✎ 編輯選項</button>
+              </div>
+              <input type="text" id="sidebar-defect-input" placeholder="輸入或點選標籤" style="width:100%; min-height:28px; padding:4px 8px; font-size:12px; border:1px solid #94a3b8; border-radius:4px; box-sizing:border-box; margin-top:3px;">
+              <div id="sidebar-defect-groups"></div>
+              <label style="font-size:12px; font-weight:bold; margin-top:8px;">🎨 地圖圖示</label>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-top:3px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:6px; padding:8px 10px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span id="icon-status-text" style="font-size:13px; color:var(--text); font-weight:bold;">自動判斷：</span>
+                  <div id="sidebar-icon-current-display" class="preview-badge" style="background-color:#0f766e; font-size:15px; min-width:32px; height:32px; border-radius:16px; box-shadow:0 2px 5px rgba(0,0,0,0.2); display:flex; justify-content:center; align-items:center; color:#fff; font-weight:900; transition: background 0.3s;">📍</div>
+                </div>
+                <div style="display:flex; gap:6px;">
+                  <button type="button" id="sidebar-icon-auto-btn" style="display:none; border:1px solid #cbd5e1; background:#fff; color:var(--accent-dark); font-size:12px; font-weight:bold; padding:4px 8px; border-radius:4px; cursor:pointer; min-height:28px;">↺ 恢復自動</button>
+                  <button type="button" id="toggle-manual-icon-btn" style="border:1px dashed var(--accent); background:transparent; color:var(--accent); font-size:12px; font-weight:bold; padding:4px 8px; border-radius:4px; cursor:pointer; min-height:28px; transition:all 0.2s;">✎ 手動修改</button>
+                </div>
+              </div>
+              <input type="hidden" id="sidebar-icon-input" value="">
+              <div id="sidebar-icon-groups" style="display:none; border:1px solid var(--line); border-radius:6px; padding:8px; background:#fff; margin-top:6px; flex-direction:column; gap:6px;">
+              </div>
+              <section class="photo-panel" aria-label="巡檢照片">
+                <div class="photo-panel-head">
+                  <div>
+                    <strong>📷 巡檢照片</strong>
+                    <span id="photoStatusText">可在儲存前拍照或選取相簿照片</span>
+                  </div>
+                  <div class="photo-panel-actions">
+                    <button type="button" id="photoCaptureBtn" title="開啟相機拍照">拍照</button>
+                    <button type="button" id="photoPickBtn" title="從相簿選取照片">相簿</button>
+                    <button type="button" id="photoClearPendingBtn" title="移除尚未儲存的照片">清除新增</button>
+                  </div>
+                </div>
+                <input id="photoInput" type="file" accept="image/*" multiple style="display:none">
+                <div id="photoStrip" class="photo-strip"></div>
+              </section>
+            </div>
+          </div>
+          <div style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-top:1px solid var(--line); background:#fff; gap:8px; z-index:10; box-shadow:0 -2px 10px rgba(0,0,0,0.05);">
+            <div style="display:flex; gap:6px;">
+              <button id="editScrollTopBtn" style="min-height:32px; padding:0 12px; font-size:12px; background:#f1f5f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:20px; font-weight:bold;">▲</button>
+              <button id="editScrollBotBtn" style="min-height:32px; padding:0 12px; font-size:12px; background:#f1f5f9; color:var(--accent-dark); border:1px solid var(--line); border-radius:20px; font-weight:bold;">▼</button>
+            </div>
+            <button id="sidebarSaveBtn" class="btn-save-record" style="margin-top:0; width:auto; flex-grow:1;" disabled>💾 儲存紀錄</button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="map-shell">
+        <div id="map"></div>
+        <section id="tpcGridReadout" class="tpc-grid-readout" aria-live="polite" aria-label="圖號座標" hidden>
+          <div class="tpc-grid-readout-head">
+            <span class="tpc-grid-readout-label">目前圖號</span>
+            <strong id="tpcGridReadoutCode" class="tpc-grid-readout-code">--</strong>
+          </div>
+          <span id="tpcGridReadoutMeta" class="tpc-grid-readout-meta">開啟圖號網格後，放大地圖查看分割線</span>
+        </section>
+        <button id="locateButton" class="map-locate-button" type="button" aria-label="定位目前位置" aria-pressed="false" title="定位目前位置">⌖</button>
+        <section id="locationInfoPanel" class="location-info-panel" aria-live="off" data-state="idle" hidden>
+          <div class="location-info-head">
+            <div class="location-info-title-wrap">
+              <strong class="location-info-title">即時定位</strong>
+              <span id="locationStatus" class="location-status" aria-live="polite">尚未定位</span>
+            </div>
+            <span id="locationAccuracy" class="location-accuracy">精度 --</span>
+          </div>
+          <div class="location-info-row">
+            <span class="location-info-label">圖號座標</span>
+            <strong id="locationTpcCode" class="location-info-value location-code">--</strong>
+          </div>
+          <div class="location-info-row">
+            <span class="location-info-label">經緯度</span>
+            <span id="locationLatLng" class="location-info-value">--</span>
+          </div>
+          <div class="location-info-row">
+            <span class="location-info-label">最後更新</span>
+            <span id="locationUpdatedAt" class="location-info-value">--</span>
+          </div>
+          <div class="location-actions">
+            <button id="locationFollowBtn" class="location-follow-btn is-active" type="button" aria-pressed="true" title="地圖跟隨目前定位" disabled>⌖ 跟隨地圖</button>
+            <button id="locationAddRecordBtn" class="location-add-record-btn" type="button" title="將目前定位加入巡檢紀錄" disabled>＋ 加入巡檢</button>
+          </div>
+        </section>
+        <div id="offlineNotice" class="offline-notice" hidden>
+          <span id="offlineNoticeMessage" class="offline-notice-message"></span>
+          <button id="offlineNoticeClose" class="offline-notice-close" type="button" aria-label="關閉離線提示" title="關閉離線提示">×</button>
+        </div>
+        <div id="status" class="status">載入資料中...</div>
+      </section>
+    </main>
+
+    <template id="resultTemplate">
+      <button type="button" class="result-item">
+        <strong></strong><span></span>
+      </button>
+    </template>
+
+    <div id="defectEditBackdrop" hidden style="position:fixed; inset:0; background:rgba(15,23,42,0.35); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);"></div>
+    <section id="defectEditPanel" hidden class="defect-edit-panel">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px; border-bottom:1px solid #e2e8f0; background:#fff; flex-shrink:0;">
+        <strong style="font-size:12px; color:#0f766e;">✎ 編輯分類與選項</strong>
+        <button type="button" id="defectEditClose" style="min-width:32px; min-height:32px; border:1px solid #94a3b8; background:#f1f5f9; color:#1e293b; border-radius:6px; cursor:pointer; font-weight:bold;">✕</button>
+      </div>
+      <div id="defectGroupEditor" style="flex:1; overflow:auto; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:0;"></div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; padding:10px; border-top:1px solid #e2e8f0; background:#f8fafc; flex-shrink:0;">
+        <button type="button" id="defectAddGroupBtn" style="flex:1; min-height:36px; border:1px dashed #0f766e; background:#fff; color:#0f766e; border-radius:4px; cursor:pointer; font-size:12px; font-weight:bold;">＋ 新增分類</button>
+        <button type="button" id="defectSaveBtn" style="flex:1; min-height:36px; border:1px solid #0f766e; background:#0f766e; color:#fff; border-radius:4px; cursor:pointer; font-size:12px; font-weight:bold;">💾 儲存並收合</button>
+        <button type="button" id="defectResetBtn" style="min-height:36px; border:1px solid #fecdd3; background:#fff1f2; color:#be123c; border-radius:4px; cursor:pointer; font-size:12px; font-weight:bold; padding:0 10px;">↺ 還原預設</button>
+      </div>
+      <div id="defectEditStatus" style="font-size:11px; color:#64748b; min-height:14px; padding:0 10px 8px; flex-shrink:0;"></div>
+    </section>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+
+        <script type="module" src="./src/main.js"></script>
+    <script src="cadastre-config.js"></script>
+    <script src="src/utils/app-db.js"></script>
+    <script src="src/utils/bookmark-db.js"></script>
+    <script src="cadastre.js"></script>
+    <script src="address-search.js"></script>
+    <script src="sync.js"></script>
+    <script>
+    /* 版本對帳：主程式 5 秒內沒開機（舊 JS 配新殼 / 載入失敗）就跳橫幅請重整，
+       避免新介面點不動。慢網路有 5 秒寬限，不會誤報。 */
+    window.addEventListener("load", function () {
+      var tries = 0;
+      var timer = setInterval(function () {
+        tries++;
+        if (window.__appBooted) { clearInterval(timer); return; }
+        if (tries < 5) return;
+        clearInterval(timer);
+        try {
+          var banner = document.getElementById("pwaUpdateBanner");
+          if (!banner || !banner.hidden) return;
+          var label = banner.querySelector("span");
+          if (label) label.textContent = "程式版本不一致或載入不完整，請重新載入";
+          banner.hidden = false;
+          var reloadBtn = document.getElementById("pwaUpdateReload");
+          if (reloadBtn && !reloadBtn.__skewWired) {
+            reloadBtn.__skewWired = true;
+            reloadBtn.addEventListener("click", function () { window.location.reload(); });
+          }
+        } catch (e) {}
+      }, 1000);
+    });
+    </script>
+  </body>
+</html>
