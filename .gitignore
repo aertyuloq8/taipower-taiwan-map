@@ -1,0 +1,27 @@
+# Node & Dependencies
+node_modules/
+dist/
+.vite/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Raw Large Datasets (勿直接提交數百 MB 原始大表)
+*.csv
+*.xlsx
+*.xls
+*.zip
+data/raw/
+data/cache/
+
+# 保留重要產出
+!data/*.pmtiles
+!data/meta.json
+
+# Environment & Temp
+.env
+.env.*
+!.env.example
+*.bak
+*.bak*

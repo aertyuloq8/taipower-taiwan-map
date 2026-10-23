@@ -1,0 +1,15 @@
+{
+  "name": "taipower-map-taiwan",
+  "version": "1.0.0",
+  "private": true,
+  "description": "台灣電力公司全台電桿圖資與巡檢系統",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "devDependencies": {
+    "vite": "^6.4.3"
+  }
+}
