@@ -257,85 +257,10 @@ function handleSearchApi(req, res) {
 }
 
 async function handleCadastreApi(req, res) {
-  const parsedUrl = new URL(req.url, "http://localhost:5173");
-  const office = (parsedUrl.searchParams.get("office") || parsedUrl.searchParams.get("officeCode") || "").trim();
-  const sect = (parsedUrl.searchParams.get("sect") || parsedUrl.searchParams.get("sectionCode") || parsedUrl.searchParams.get("section") || "").trim();
-  const number = (parsedUrl.searchParams.get("number") || parsedUrl.searchParams.get("landno") || "").trim();
-  const callback = (parsedUrl.searchParams.get("callback") || "").trim();
-
-  let landno = number;
-  if (/^\d{1,4}(?:-\d{1,4})?$/.test(number)) {
-    const parts = number.split("-");
-    landno = parts[0].padStart(4, "0") + (parts[1] || "0").padStart(4, "0");
-  }
-
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Origin, Content-Type, Accept");
-
-  if (!office || !sect || !landno) {
-    const errPayload = { ok: false, error: "缺少必要參數（office, sect, number）" };
-    const body = callback ? `${callback}(${JSON.stringify(errPayload)});` : JSON.stringify(errPayload);
-    res.writeHead(400, { "Content-Type": callback ? "application/javascript; charset=utf-8" : "application/json; charset=utf-8" });
-    res.end(body);
-    return;
-  }
-
-  const queryUrl = `https://landmaps.nlsc.gov.tw/S_Maps/qryTileMapIndex?type=2&flag=2&office=${encodeURIComponent(office)}&sect=${encodeURIComponent(sect)}&landno=${encodeURIComponent(landno)}&alpah=0.5f&imgflag=1`;
-
-  try {
-    let payload = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const response = await fetch(queryUrl, {
-        headers: {
-          "Referer": "https://maps.nlsc.gov.tw/",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
-      const json = await response.json();
-      if (json[0]?.msg === "影像產置中，請稍候") {
-        await new Promise(r => setTimeout(r, 450));
-        continue;
-      }
-      if (json[0]?.msg) {
-        payload = { ok: false, error: json[0].msg };
-        break;
-      }
-      if (Array.isArray(json) && json.length >= 2 && json[1]?.image) {
-        payload = {
-          ok: true,
-          type: "imageLayers",
-          office,
-          sect,
-          landno,
-          sectName: json[0].sectStr ? Buffer.from(json[0].sectStr, "base64").toString("utf8") : "",
-          officeName: json[0].officeStr ? Buffer.from(json[0].officeStr, "base64").toString("utf8") : "",
-          imageLayers: [
-            {
-              image: json[1].image,
-              extent: [json[1].lx, json[1].ly, json[1].rx, json[1].ry],
-              mimeType: "image/png"
-            }
-          ]
-        };
-        break;
-      }
-      payload = { ok: false, error: "查無此地號影像圖資" };
-    }
-
-    if (!payload) payload = { ok: false, error: "地籍圖資服務回應逾時，請稍後再試" };
-
-    const body = callback ? `${callback}(${JSON.stringify(payload)});` : JSON.stringify(payload);
-    res.writeHead(200, { "Content-Type": callback ? "application/javascript; charset=utf-8" : "application/json; charset=utf-8" });
-    res.end(body);
-  } catch (err) {
-    const errPayload = { ok: false, error: `地籍伺服器連線失敗：${err.message}` };
-    const body = callback ? `${callback}(${JSON.stringify(errPayload)});` : JSON.stringify(errPayload);
-    res.writeHead(500, { "Content-Type": callback ? "application/javascript; charset=utf-8" : "application/json; charset=utf-8" });
-    res.end(body);
-  }
+  const handler = (await import("./api/cadastre.js")).default;
+  return handler(req, res);
 }
 
-// dev 專用：把 /data/* 代理到專案根目錄的 data/，並支援 HTTP Range Request (供 PMTiles 分片下載)
 function dataDirPlugin() {
   const dataDir = path.join(projectRoot, "data");
   return {

@@ -141,7 +141,8 @@
   }
 
   function getMap() {
-    return window.__v2LeafletMap || window.map || null;
+    const candidate = window.__v2LeafletMap || window.map;
+    return candidate && typeof candidate.getPane === "function" ? candidate : null;
   }
 
   function setStatus(message = "", options = {}) {
@@ -503,6 +504,118 @@
   let currentCadastreData = null;
   let currentCadastrePayload = null;
 
+  window.switchCadastrePopupTab = function(btn, tabName) {
+    if (!btn) return;
+    const root = btn.closest(".v2-cadastre-popup") || btn.closest(".v2-cadastre-summary-container");
+    if (!root) return;
+    root.querySelectorAll(".v2-cadastre-popup-tab-btn").forEach(b => {
+      const active = b.getAttribute("data-tab") === tabName;
+      b.classList.toggle("is-active", active);
+    });
+    root.querySelectorAll(".v2-cadastre-popup-tab-pane").forEach(p => {
+      const active = p.getAttribute("data-tab-pane") === tabName;
+      p.style.display = active ? "block" : "none";
+    });
+  };
+
+  function buildCadastreTabbedPopupHtml({
+    section,
+    number,
+    city,
+    town,
+    officeStr,
+    navUrl,
+    areaStr,
+    zoningStr,
+    declaredVal,
+    declaredPrice,
+    dateStr,
+    ownerCategory,
+    userList,
+    landUseHistory
+  }) {
+    let ownerDisplay = ownerCategory || "";
+    if (!ownerDisplay && Array.isArray(userList) && userList.length > 0) {
+      ownerDisplay = userList.map(u => u.type ? `${u.name || ""} (${u.type})` : (u.name || "")).filter(Boolean).join("、");
+    }
+    if (!ownerDisplay) ownerDisplay = "依政府規定隱匿個資或無登記";
+
+    const historyItems = Array.isArray(landUseHistory) ? landUseHistory : [];
+    const historyCount = historyItems.length;
+
+    let historyTableHtml = "";
+    if (historyCount > 0) {
+      const rows = historyItems.map(item => `
+        <tr>
+          <td style="white-space:nowrap;font-weight:700;color:#0f766e;padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:center;">${escapeHtml(item.timeStr || (item.year ? item.year + "年" : "--"))}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;color:#334155;">${escapeHtml([item.code, item.name].filter(Boolean).join(" - "))}</td>
+        </tr>
+      `).join("");
+
+      historyTableHtml = `
+        <div style="max-height:165px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;background:#fff;margin-top:4px;-webkit-overflow-scrolling:touch;">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.4;">
+            <thead>
+              <tr style="background:#f8fafc;color:#475569;border-bottom:1px solid #cbd5e1;position:sticky;top:0;z-index:2;">
+                <th style="padding:4px 6px;text-align:center;width:38%;">調查時間</th>
+                <th style="padding:4px 6px;text-align:left;">土地利用現況</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:4px;line-height:1.3;">* 本表為單點現況調查成果，非土地使用管制。</div>
+      `;
+    } else {
+      historyTableHtml = `
+        <div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:12px;background:#f8fafc;border-radius:6px;border:1px dashed #cbd5e1;margin-top:4px;">
+          查無歷年國土利用調查成果
+        </div>
+      `;
+    }
+
+    return `
+      <div class="v2-cadastre-popup" style="min-width:260px;max-width:320px;line-height:1.5;">
+        <div style="border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-bottom:6px;padding-right:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <strong style="font-size:14px;color:#0f766e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(section?.name || "")} ${escapeHtml(formatParcel(number))} 地號</strong>
+            <span style="font-size:10px;color:#64748b;background:#f1f5f9;border:1px solid #e2e8f0;padding:1px 5px;border-radius:4px;white-space:nowrap;">${escapeHtml(officeStr)}所</span>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px;">
+            ${escapeHtml(city?.name || "")} ${escapeHtml(town?.name || town || "")} · 段代碼 ${escapeHtml(section?.code || "")}
+          </div>
+        </div>
+
+        <div class="v2-cadastre-popup-tabs" style="display:flex;gap:4px;background:#f1f5f9;padding:3px;border-radius:6px;margin-bottom:8px;">
+          <button type="button" class="v2-cadastre-popup-tab-btn is-active" data-tab="info" onclick="window.switchCadastrePopupTab(this, 'info')">📋 土地資訊</button>
+          <button type="button" class="v2-cadastre-popup-tab-btn" data-tab="landuse" onclick="window.switchCadastrePopupTab(this, 'landuse')">🌱 國土利用 ${historyCount > 0 ? `(${historyCount})` : ''}</button>
+        </div>
+
+        <div class="v2-cadastre-popup-tab-pane" data-tab-pane="info" style="display:block;">
+          <div style="display:grid;gap:3px;font-size:12px;">
+            ${areaStr ? `<div>📐 面積：<strong>${escapeHtml(areaStr)}</strong></div>` : ""}
+            ${zoningStr ? `<div>🏛️ 分區：<strong>${escapeHtml(zoningStr)}</strong></div>` : ""}
+            ${declaredVal ? `<div>💰 現值：<strong>${Number(declaredVal).toLocaleString()} 元/㎡</strong></div>` : ""}
+            ${declaredPrice ? `<div>💵 地價：<strong>${Number(declaredPrice).toLocaleString()} 元/㎡</strong></div>` : ""}
+            ${dateStr ? `<div>📅 登記：<strong>${escapeHtml(dateStr)}</strong></div>` : ""}
+            <div>👤 權利人：<strong style="color:#0f766e;">${escapeHtml(ownerDisplay)}</strong></div>
+          </div>
+        </div>
+
+        <div class="v2-cadastre-popup-tab-pane" data-tab-pane="landuse" style="display:none;">
+          <div style="font-size:11px;color:#64748b;">坐標點歷年現況調查結果：</div>
+          ${historyTableHtml}
+        </div>
+
+        <div class="v2-cadastre-popup-actions" style="margin-top:8px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;gap:6px;">
+          ${navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;">🗺️ 導航</a>` : ""}
+          <button type="button" data-cadastre-retain-popup style="flex:1;background:#ecfeff;color:#0f766e;border:1px solid #0f766e;border-radius:5px;min-height:28px;padding:3px 6px;font-weight:800;font-size:12px;cursor:pointer;">⭐ 收藏</button>
+          <button class="popup-clear-location-button" type="button" data-clear-cadastre-overlay style="flex:1;min-height:28px;padding:3px 6px;font-size:12px;">✕ 清除</button>
+        </div>
+      </div>
+    `;
+  }
+
   function showImageResult(layers, city, town, section, number, payload) {
     if (!controls.result) return;
     const extent = layers[0]?.extent || [];
@@ -517,6 +630,7 @@
     const zone = payload?.zone || (payload?.ralid?.AA11 ? atob(payload.ralid.AA11) : "");
     const landUse = payload?.landUse || (payload?.ralid?.AA12 ? atob(payload.ralid.AA12) : "");
     const declaredVal = payload?.declaredValue || payload?.ralid?.AA16;
+    const declaredPrice = payload?.declaredPrice || payload?.ralid?.AA17;
     const regDate = payload?.regDate || payload?.ralid?.AA05;
 
     let areaStr = "";
@@ -530,24 +644,82 @@
     const zoningStr = [zone, landUse].filter(Boolean).join(" · ");
     const dateStr = regDate ? formatCadastreDate(regDate) : "";
 
+    let ownerDisplay = payload?.ownerCategory || "";
+    if (!ownerDisplay && Array.isArray(payload?.userList) && payload.userList.length > 0) {
+      ownerDisplay = payload.userList.map(u => u.type ? `${u.name || ""} (${u.type})` : (u.name || "")).filter(Boolean).join("、");
+    }
+    if (!ownerDisplay) ownerDisplay = "依政府規定隱匿個資或無登記";
+
+    const historyItems = Array.isArray(payload?.landUseHistory) ? payload.landUseHistory : [];
+    const historyCount = historyItems.length;
+
+    let historyTableHtml = "";
+    if (historyCount > 0) {
+      const rows = historyItems.map(item => `
+        <tr>
+          <td style="white-space:nowrap;font-weight:700;color:#0f766e;padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:center;">${escapeHtml(item.timeStr || (item.year ? item.year + "年" : "--"))}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;color:#334155;">${escapeHtml([item.code, item.name].filter(Boolean).join(" - "))}</td>
+        </tr>
+      `).join("");
+
+      historyTableHtml = `
+        <div style="max-height:180px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;background:#fff;margin-top:6px;-webkit-overflow-scrolling:touch;">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.4;">
+            <thead>
+              <tr style="background:#f8fafc;color:#475569;border-bottom:1px solid #cbd5e1;position:sticky;top:0;z-index:2;">
+                <th style="padding:4px 6px;text-align:center;width:35%;">調查時間</th>
+                <th style="padding:4px 6px;text-align:left;">土地利用現況</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div style="font-size:10px;color:#94a3b8;margin-top:4px;line-height:1.3;">* 本表為單點現況調查成果，非土地使用管制。</div>
+      `;
+    } else {
+      historyTableHtml = `
+        <div style="text-align:center;padding:18px 8px;color:#94a3b8;font-size:12px;background:#f8fafc;border-radius:6px;border:1px dashed #cbd5e1;margin-top:6px;">
+          查無歷年國土利用調查成果
+        </div>
+      `;
+    }
+
     controls.result.innerHTML = `
-      <strong>已套繪：${escapeHtml(section.name)} ${escapeHtml(formatParcel(number))} 地號</strong>
-      <span>國土測繪圖資已定位套繪。點擊地圖上的紅框標註或下方按鈕可導航或加入收藏。</span>
-      <dl>
-        <dt>縣市</dt><dd>${escapeHtml(city?.name || "")}</dd>
-        <dt>行政區</dt><dd>${escapeHtml(town.name)}</dd>
-        <dt>地段</dt><dd>${escapeHtml(section.name)}（${escapeHtml(section.code)}）</dd>
-        <dt>事務所</dt><dd>${escapeHtml(officeText)}</dd>
-        <dt>地號</dt><dd>${escapeHtml(formatParcel(number))}</dd>
-        ${areaStr ? `<dt>面積</dt><dd>${escapeHtml(areaStr)}</dd>` : ""}
-        ${zoningStr ? `<dt>使用分區</dt><dd>${escapeHtml(zoningStr)}</dd>` : ""}
-        ${declaredVal ? `<dt>公告現值</dt><dd>${Number(declaredVal).toLocaleString()} 元/㎡</dd>` : ""}
-        ${dateStr ? `<dt>登記日期</dt><dd>${escapeHtml(dateStr)}</dd>` : ""}
-        <dt>經緯度範圍</dt><dd class="v2-cadastre-extent">${escapeHtml(extentText)}</dd>
-      </dl>
-      <div class="v2-cadastre-result-actions" style="display:flex;gap:8px;margin-top:8px;">
-        ${navUrl ? `<a class="v2-cadastre-action" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-decoration:none;font-size:12px;min-height:34px;display:flex;align-items:center;justify-content:center;">🗺️ 導航</a>` : ""}
-        <button type="button" class="v2-cadastre-action is-secondary" data-cadastre-retain style="flex:1;font-size:12px;min-height:34px;cursor:pointer;">⭐ 收藏</button>
+      <div class="v2-cadastre-summary-container">
+        <strong>已套繪：${escapeHtml(section.name)} ${escapeHtml(formatParcel(number))} 地號</strong>
+        <span style="font-size:12px;color:#64748b;">國土測繪圖資已定位套繪。點擊地圖上的紅框標註或下方按鈕可導航或加入收藏。</span>
+
+        <div class="v2-cadastre-popup-tabs" style="display:flex;gap:4px;background:#f1f5f9;padding:3px;border-radius:6px;margin:8px 0 6px 0;">
+          <button type="button" class="v2-cadastre-popup-tab-btn is-active" data-tab="info" onclick="window.switchCadastrePopupTab(this, 'info')">📋 土地資訊</button>
+          <button type="button" class="v2-cadastre-popup-tab-btn" data-tab="landuse" onclick="window.switchCadastrePopupTab(this, 'landuse')">🌱 國土利用 ${historyCount > 0 ? `(${historyCount})` : ''}</button>
+        </div>
+
+        <div class="v2-cadastre-popup-tab-pane" data-tab-pane="info" style="display:block;">
+          <dl>
+            <dt>縣市</dt><dd>${escapeHtml(city?.name || "")}</dd>
+            <dt>行政區</dt><dd>${escapeHtml(town.name)}</dd>
+            <dt>地段</dt><dd>${escapeHtml(section.name)}（${escapeHtml(section.code)}）</dd>
+            <dt>事務所</dt><dd>${escapeHtml(officeText)}</dd>
+            <dt>地號</dt><dd>${escapeHtml(formatParcel(number))}</dd>
+            ${areaStr ? `<dt>面積</dt><dd>${escapeHtml(areaStr)}</dd>` : ""}
+            ${zoningStr ? `<dt>使用分區</dt><dd>${escapeHtml(zoningStr)}</dd>` : ""}
+            ${declaredVal ? `<dt>公告現值</dt><dd>${Number(declaredVal).toLocaleString()} 元/㎡</dd>` : ""}
+            ${declaredPrice ? `<dt>申報地價</dt><dd>${Number(declaredPrice).toLocaleString()} 元/㎡</dd>` : ""}
+            ${dateStr ? `<dt>登記日期</dt><dd>${escapeHtml(dateStr)}</dd>` : ""}
+            <dt>權利人</dt><dd style="font-weight:700;color:#0f766e;">${escapeHtml(ownerDisplay)}</dd>
+            <dt>經緯度範圍</dt><dd class="v2-cadastre-extent">${escapeHtml(extentText)}</dd>
+          </dl>
+        </div>
+
+        <div class="v2-cadastre-popup-tab-pane" data-tab-pane="landuse" style="display:none;">
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px;">坐標點歷年現況調查結果：</div>
+          ${historyTableHtml}
+        </div>
+
+        <div class="v2-cadastre-result-actions" style="display:flex;gap:8px;margin-top:8px;">
+          ${navUrl ? `<a class="v2-cadastre-action" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-decoration:none;font-size:12px;min-height:34px;display:flex;align-items:center;justify-content:center;">🗺️ 導航</a>` : ""}
+          <button type="button" class="v2-cadastre-action is-secondary" data-cadastre-retain style="flex:1;font-size:12px;min-height:34px;cursor:pointer;">⭐ 收藏</button>
+        </div>
       </div>
     `;
     controls.result.hidden = false;
@@ -584,6 +756,7 @@
       const zone = payload?.zone || (payload?.ralid?.AA11 ? atob(payload.ralid.AA11) : "");
       const landUse = payload?.landUse || (payload?.ralid?.AA12 ? atob(payload.ralid.AA12) : "");
       const declaredVal = payload?.declaredValue || payload?.ralid?.AA16;
+      const declaredPrice = payload?.declaredPrice || payload?.ralid?.AA17;
       const regDate = payload?.regDate || payload?.ralid?.AA05;
 
       let areaStr = "";
@@ -598,27 +771,22 @@
       const officeStr = payload?.officeName || section.office || "--";
       const dateStr = regDate ? formatCadastreDate(regDate) : "";
 
-      let ownerStr = "";
-      if (Array.isArray(payload?.userList) && payload.userList.length > 0) {
-        ownerStr = payload.userList.map(u => u.type ? `${u.name || ""} (${u.type})` : (u.name || "")).filter(Boolean).join("、");
-      }
-
-      const popupHtml = `
-        <div class="v2-cadastre-popup" style="min-width:240px;line-height:1.6;">
-          <strong style="font-size:15px;color:#0f766e;">${escapeHtml(section.name)} ${escapeHtml(formatParcel(number))} 地號</strong><br>
-          <span style="color:#555;">${escapeHtml(city?.name || "")} ${escapeHtml(town.name)} · ${escapeHtml(section.code)} · ${escapeHtml(officeStr)}所</span>
-          ${areaStr ? `<br><span>📐 面積：<strong>${escapeHtml(areaStr)}</strong></span>` : ""}
-          ${zoningStr ? `<br><span>🏛️ 使用分區：${escapeHtml(zoningStr)}</span>` : ""}
-          ${declaredVal ? `<br><span>💰 公告現值：${Number(declaredVal).toLocaleString()} 元/㎡</span>` : ""}
-          ${dateStr ? `<br><span>📅 登記日期：${escapeHtml(dateStr)}</span>` : ""}
-          ${ownerStr ? `<br><span>👤 所有權：${escapeHtml(ownerStr)}</span>` : ""}
-          <div class="v2-cadastre-popup-actions" style="margin-top:10px;display:flex;gap:6px;">
-            ${navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener">🗺️ 導航</a>` : ""}
-            <button type="button" data-cadastre-retain-popup style="background:#ecfeff;color:#0f766e;border:1px solid #0f766e;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">⭐ 收藏</button>
-            <button class="popup-clear-location-button" type="button" data-clear-cadastre-overlay>✕ 清除</button>
-          </div>
-        </div>
-      `;
+      const popupHtml = buildCadastreTabbedPopupHtml({
+        section,
+        number,
+        city,
+        town,
+        officeStr,
+        navUrl,
+        areaStr,
+        zoningStr,
+        declaredVal,
+        declaredPrice,
+        dateStr,
+        ownerCategory: payload?.ownerCategory,
+        userList: payload?.userList,
+        landUseHistory: payload?.landUseHistory
+      });
 
       const rect = L.rectangle(imageBounds, {
         pane: paneName,
@@ -646,10 +814,12 @@
 
     const center = bounds.isValid() ? bounds.getCenter() : null;
     if (center) {
-      window.setTimeout(() => {
+      const openTargetPopup = () => {
         const rectLayer = group.getLayers().find(l => typeof l.openPopup === "function");
-        rectLayer?.openPopup();
-      }, 400);
+        if (rectLayer && !rectLayer.isPopupOpen()) rectLayer.openPopup();
+      };
+      map.once("moveend", openTargetPopup);
+      window.setTimeout(openTargetPopup, 450);
     }
   }
 
@@ -950,16 +1120,26 @@
               fillOpacity: 0.08,
               interactive: true,
             });
-            rect.bindPopup(`
-              <div class="v2-cadastre-popup">
-                <strong>${escapeHtml(b.sectionName)} ${escapeHtml(formatParcel(b.number))}</strong><br>
-                <span>${escapeHtml(b.cityName || b.city || "")} ${escapeHtml(b.town)} · ${escapeHtml(b.section)}</span>
-                <div class="v2-cadastre-popup-actions" style="margin-top:8px;">
-                  ${navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="margin-right:6px;">🗺️ 導航</a>` : ""}
-                  <button type="button" data-cadastre-bookmark-hide="${escapeHtml(b.id)}" style="background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">🙈 隱藏</button>
-                </div>
-              </div>
-            `);
+            const bmAreaStr = b.area ? `${Number(b.area).toLocaleString("zh-TW")} ㎡ (約 ${(Number(b.area)*0.3025).toFixed(1)} 坪)` : "";
+            const bmZoningStr = [b.zone, b.landUse].filter(Boolean).join(" · ");
+            const bmDateStr = b.regDate ? formatCadastreDate(b.regDate) : "";
+            const bmPopupHtml = buildCadastreTabbedPopupHtml({
+              section: { code: b.section, name: b.sectionName, office: b.office },
+              number: b.number,
+              city: { code: b.cityCode, name: b.cityName || b.city },
+              town: { code: b.townCode, name: b.town },
+              officeStr: b.office || "--",
+              navUrl,
+              areaStr: bmAreaStr,
+              zoningStr: bmZoningStr,
+              declaredVal: b.declaredValue,
+              declaredPrice: b.declaredPrice,
+              dateStr: bmDateStr,
+              ownerCategory: b.ownerCategory,
+              userList: b.userList,
+              landUseHistory: b.landUseHistory
+            });
+            rect.bindPopup(bmPopupHtml);
             rect.addTo(group);
           });
           group.addTo(map);
@@ -1004,6 +1184,15 @@
         sectionName: section.name,
         office: section.office || payload.office || "",
         number,
+        area: payload.area || payload.ralid?.AA10,
+        zone: payload.zone || (payload.ralid?.AA11 ? atob(payload.ralid.AA11) : ""),
+        landUse: payload.landUse || (payload.ralid?.AA12 ? atob(payload.ralid.AA12) : ""),
+        declaredValue: payload.declaredValue || payload.ralid?.AA16,
+        declaredPrice: payload.declaredPrice || payload.ralid?.AA17,
+        regDate: payload.regDate || payload.ralid?.AA05,
+        ownerCategory: payload.ownerCategory,
+        userList: payload.userList,
+        landUseHistory: payload.landUseHistory,
         visible: true,
         createdAt: new Date().toISOString(),
       };
