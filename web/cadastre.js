@@ -16,7 +16,7 @@
     setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 1800);
   }
 
-  const requestTimeoutMs = 45_000;
+  const requestTimeoutMs = 15_000;
   const controls = {
     panel: document.getElementById("v2CadastrePanel"),
     toggle: document.getElementById("v2CadastreToggle"),
@@ -463,7 +463,7 @@
         handler(value);
       };
       const timeoutId = window.setTimeout(() => {
-        settle(reject, new Error("地籍查詢服務逾時，請稍後再試。原有設備圖層未受影響。"));
+        settle(reject, new Error("地籍服務回應逾時。線上版請確認 Google Apps Script 是否已更新部署最新版 Code.gs。"));
       }, requestTimeoutMs);
       window[callbackName] = payload => {
         if (payload?.ok === false || payload?.error) {
