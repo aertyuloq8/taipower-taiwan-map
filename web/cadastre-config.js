@@ -1,9 +1,12 @@
 /*
- * V2 地籍範圍查詢設定。
- * 這個網址是公開的 GAS Web App，不包含任何 Token 或帳密。GAS 會在伺服器端
- * 取得短效 Token、向臺南市地政地籍圖層查詢，再只把 GeoJSON 回傳給瀏覽器。
+ * 全台地籍圖資查詢設定 (Taiwan Cadastre Configuration)
+ * 支援全台 22 縣市、368 鄉鎮市區、16,951 地段
  */
 window.CADASTRE_GAS_URL = "https://script.google.com/macros/s/AKfycbw5rYwcEBKZcvqQJS4OZtHtu3gDBsoH7pCD8H2N4_ZWl7F6E1oovg881EQhvUNuqXXbPA/exec";
-window.CADASTRE_GAS_SUPPORTED_CITY_CODES = ["D"];
-window.CADASTRE_GAS_MODE = "geojson";
-window.CADASTRE_DROPDOWN_DATA_URL = "../data/cadastral-dropdowns-tw.json";
+window.CADASTRE_GAS_MODE = "image";
+window.CADASTRE_DROPDOWN_DATA_URL = "./cadastral-dropdowns-tw.json";
+
+// 本地開發環境 (localhost / 127.0.0.1) 自動使用 Vite 極速 API
+if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+  window.CADASTRE_ADAPTER_URL = "/api/cadastre";
+}

@@ -1,29 +1,28 @@
 (() => {
   "use strict";
 
-  const fixedCityCode = "D";
-  const fixedCityNames = new Set(["臺南市", "台南市"]);
-
   function showToast(msg, type) {
     const el = document.createElement("div");
     el.textContent = msg;
     Object.assign(el.style, {
-      position:"fixed",bottom:"80px",left:"50%",transform:"translateX(-50%)",
-      padding:"10px 20px",borderRadius:"8px",fontSize:"14px",fontWeight:"600",
-      color:"#fff",zIndex:"99999",opacity:"0",transition:"opacity 0.3s ease",
-      pointerEvents:"none",maxWidth:"90vw",textAlign:"center",
-      background: type==="error" ? "#dc2626" : type==="dup" ? "#d97706" : "#0f766e",
+      position: "fixed", bottom: "80px", left: "50%", transform: "translateX(-50%)",
+      padding: "10px 20px", borderRadius: "8px", fontSize: "14px", fontWeight: "600",
+      color: "#fff", zIndex: "99999", opacity: "0", transition: "opacity 0.3s ease",
+      pointerEvents: "none", maxWidth: "90vw", textAlign: "center",
+      background: type === "error" ? "#dc2626" : type === "dup" ? "#d97706" : "#0f766e",
     });
     document.body.appendChild(el);
     requestAnimationFrame(() => { el.style.opacity = "1"; });
     setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 1800);
   }
+
   const requestTimeoutMs = 45_000;
   const controls = {
     panel: document.getElementById("v2CadastrePanel"),
     toggle: document.getElementById("v2CadastreToggle"),
     close: document.getElementById("v2CadastreClose"),
     form: document.getElementById("v2CadastreForm"),
+    city: document.getElementById("v2CadastreCity"),
     town: document.getElementById("v2CadastreTown"),
     section: document.getElementById("v2CadastreSection"),
     sectionSearch: document.getElementById("v2CadastreSectionSearch"),
@@ -36,18 +35,23 @@
     status: document.getElementById("v2CadastreStatus"),
     result: document.getElementById("v2CadastreResult"),
   };
+
   const CADASTRE_BOOKMARKS_KEY = "tp_cadastre_bookmarks_v1";
+  const CADASTRE_CITY_KEY = "tp_cadastre_selected_city_v2";
+  const CADASTRE_TOWN_KEY = "tp_cadastre_selected_town_v2";
+
   function loadCadastreBookmarks() {
     try {
       const raw = JSON.parse(localStorage.getItem(CADASTRE_BOOKMARKS_KEY) || "[]");
-      return Array.isArray(raw) ? raw.filter(b => b && b.id && b.town && b.section) : [];
+      return Array.isArray(raw) ? raw.filter(b => b && b.id && b.section) : [];
     } catch { return []; }
   }
+
   function saveCadastreBookmarks() {
     try { localStorage.setItem(CADASTRE_BOOKMARKS_KEY, JSON.stringify(cadastreBookmarks)); } catch {}
-    // Also write to IndexedDB (async, non-blocking)
     if (window.__bookmarkDB) window.__bookmarkDB.saveBookmarks("cadastre", cadastreBookmarks).catch(() => {});
   }
+
   const state = {
     city: null,
     cities: [],
@@ -55,11 +59,12 @@
     overlayLayer: null,
     requestSequence: 0,
   };
+
   let cadastreBookmarks = loadCadastreBookmarks();
   let cadastreBookmarkLayers = new Map();
   let cadastreSelectedIds = new Set();
+
   window.addEventListener("bookmarksRestored", () => {
-    // Try IndexedDB first, fallback to localStorage
     if (window.__bookmarkDB) {
       window.__bookmarkDB.loadBookmarks("cadastre").then(data => {
         if (Array.isArray(data)) { cadastreBookmarks = data; cadastreSelectedIds.clear(); renderCadastreBookmarks(); }
@@ -70,7 +75,7 @@
       renderCadastreBookmarks();
     }
   });
-  // Async migration: load from IndexedDB if available, update in-memory array
+
   if (window.__bookmarkDB) {
     window.__bookmarkDB.loadBookmarks("cadastre").then(data => {
       if (Array.isArray(data)) { cadastreBookmarks = data; renderCadastreBookmarks(); }
@@ -136,7 +141,7 @@
   }
 
   function getMap() {
-    return window.__v2LeafletMap || null;
+    return window.__v2LeafletMap || window.map || null;
   }
 
   function setStatus(message = "", options = {}) {
@@ -188,7 +193,11 @@
     if (open) {
       closeOtherFloatingPanels();
       ensureDropdowns();
-      window.setTimeout(() => controls.town?.focus(), 0);
+      window.setTimeout(() => {
+        if (controls.city && !controls.city.value) controls.city.focus();
+        else if (controls.town && !controls.town.value) controls.town.focus();
+        else controls.parcel?.focus();
+      }, 0);
     }
   }
 
@@ -211,9 +220,10 @@
         const sections = (Array.isArray(town?.sections) ? town.sections : []).reduce((sectionItems, section) => {
           const code = String(section?.code || "").trim();
           const name = String(section?.name || "").trim();
+          const office = String(section?.office || section?.officeCode || "").trim();
           if (!code || !name || seenSections.has(code)) return sectionItems;
           seenSections.add(code);
-          sectionItems.push({ code, name });
+          sectionItems.push({ code, name, office });
           return sectionItems;
         }, []);
         items.push({ code: townCode, name: townName, sections });
@@ -261,23 +271,42 @@
   }
 
   async function ensureDropdowns() {
-    if (state.city) return state.city;
+    if (state.cities && state.cities.length) return state.cities;
     if (state.dropdownPromise) return state.dropdownPromise;
     state.dropdownPromise = (async () => {
       try {
-        const dataUrl = String(window.CADASTRE_DROPDOWN_DATA_URL || "../data/cadastral-dropdowns-tw.json").trim();
+        const dataUrl = String(window.CADASTRE_DROPDOWN_DATA_URL || "./cadastral-dropdowns-tw.json").trim();
         const response = await fetch(new URL(dataUrl, window.location.href), { cache: "force-cache", headers: { Accept: "application/json" } });
         if (!response.ok) throw new Error(`地籍下拉資料無法載入（HTTP ${response.status}）。`);
         state.cities = normalizeCatalog(await response.json());
-        state.city = state.cities.find(city => city.code === fixedCityCode && fixedCityNames.has(city.name)) || null;
-        if (!state.city) throw new Error("地籍下拉資料沒有臺南市。" );
-        replaceOptions(controls.town, state.city.towns, "請選擇臺南市行政區");
-        controls.town.disabled = false;
-        resetSections();
-        setStatus("已固定為臺南市；請選擇鄉鎮市區後輸入地段關鍵字。" );
-        return state.city;
+        if (!state.cities.length) throw new Error("地籍下拉資料為空。");
+
+        replaceOptions(controls.city, state.cities, "請選擇縣市");
+        if (controls.city) controls.city.disabled = false;
+
+        let defaultCityCode = localStorage.getItem(CADASTRE_CITY_KEY) || "D";
+        let initialCity = state.cities.find(c => c.code === defaultCityCode) || state.cities[0];
+        if (initialCity && controls.city) {
+          controls.city.value = initialCity.code;
+          state.city = initialCity;
+          replaceOptions(controls.town, state.city.towns, `請選擇${state.city.name}行政區`);
+          if (controls.town) controls.town.disabled = false;
+
+          const savedTownCode = localStorage.getItem(CADASTRE_TOWN_KEY);
+          const initialTown = state.city.towns.find(t => t.code === savedTownCode);
+          if (initialTown && controls.town) {
+            controls.town.value = initialTown.code;
+            updateTownSections(initialTown);
+          } else {
+            resetSections();
+          }
+        }
+
+        setStatus("全台 22 縣市地籍已就緒；請選擇行政區與地段。");
+        return state.cities;
       } catch (error) {
-        controls.town.disabled = true;
+        if (controls.city) controls.city.disabled = true;
+        if (controls.town) controls.town.disabled = true;
         resetSections();
         setStatus(String(error?.message || "地籍下拉資料無法載入。"), { error: true });
         state.dropdownPromise = null;
@@ -285,6 +314,24 @@
       }
     })();
     return state.dropdownPromise;
+  }
+
+  function updateTownSections(town) {
+    if (!town || !controls.sectionSearch) {
+      resetSections();
+      return;
+    }
+    controls.section.value = "";
+    controls.sectionSearch.value = "";
+    controls.sectionSearch.disabled = !town.sections.length;
+    controls.sectionSearch.placeholder = town.sections.length ? "輸入地段關鍵字，例如 二王、中正、信義" : "此行政區沒有可用地段";
+    replaceOptions(controls.sectionSelect, town.sections.map(section => ({
+      ...section,
+      label: `${section.name}（${section.code}）`,
+    })), town.sections.length ? "請從地段清單選取" : "此行政區沒有可用地段");
+    if (controls.sectionSelect) controls.sectionSelect.disabled = !town.sections.length;
+    setMatchesOpen(false);
+    setHint(town.sections.length ? `此行政區有 ${town.sections.length} 個地段。` : "此行政區沒有可用地段。");
   }
 
   function matchesForKeyword() {
@@ -357,7 +404,7 @@
     state.overlayLayer = null;
     controls.result?.replaceChildren();
     if (controls.result) controls.result.hidden = true;
-    if (!keepStatus) setStatus("已清除地籍套繪結果。" );
+    if (!keepStatus) setStatus("已清除地籍套繪結果。");
   }
 
   function clearQuery({ focusParcel = true } = {}) {
@@ -375,14 +422,31 @@
   }
 
   function adapterMode() {
-    return String(window.CADASTRE_ADAPTER_MODE || window.CADASTRE_GAS_MODE || "geojson").trim().toLowerCase() === "image"
-      ? "image"
-      : "geojson";
+    return String(window.CADASTRE_ADAPTER_MODE || window.CADASTRE_GAS_MODE || "image").trim().toLowerCase() === "geojson"
+      ? "geojson"
+      : "image";
   }
 
-  function requestParcel(params) {
+  async function requestParcel(params) {
     const baseUrl = adapterUrl();
-    if (!baseUrl) throw new Error("尚未設定地籍查詢服務網址。" );
+    if (!baseUrl) throw new Error("尚未設定地籍查詢服務網址。");
+
+    // Local Vite dev server API
+    if (baseUrl.startsWith("/api/") || baseUrl.includes("localhost:") || baseUrl.includes("127.0.0.1:")) {
+      const url = new URL(baseUrl, window.location.href);
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
+      });
+      const response = await fetch(url.toString(), {
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) throw new Error(`地籍服務連線失敗（HTTP ${response.status}）。`);
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(String(payload.error || "查無此地號地籍資料。"));
+      return payload;
+    }
+
+    // JSONP for GitHub Pages / GAS
     return new Promise((resolve, reject) => {
       const callbackName = `__v2CadastreJsonp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const script = document.createElement("script");
@@ -436,47 +500,114 @@
     }).filter(Boolean);
   }
 
-  function showImageResult(layers, town, section, number) {
+  let currentCadastreData = null;
+  let currentCadastrePayload = null;
+
+  function showImageResult(layers, city, town, section, number, payload) {
     if (!controls.result) return;
     const extent = layers[0]?.extent || [];
     const extentText = extent.length === 4
       ? `${extent[0].toFixed(6)}, ${extent[1].toFixed(6)} ～ ${extent[2].toFixed(6)}, ${extent[3].toFixed(6)}`
       : "--";
-    controls.result.innerHTML = `<strong>已套繪：${escapeHtml(section.name)} ${escapeHtml(formatParcel(number))} 地號</strong><span>國土測繪圖片已依 EXT 經緯度範圍套繪。</span><dl><dt>縣市</dt><dd>臺南市</dd><dt>鄉鎮市區</dt><dd>${escapeHtml(town.name)}</dd><dt>地段</dt><dd>${escapeHtml(section.name)}（${escapeHtml(section.code)}）</dd><dt>地號</dt><dd>${escapeHtml(formatParcel(number))}</dd><dt>圖片範圍</dt><dd class="v2-cadastre-extent">${escapeHtml(extentText)}</dd></dl>`;
+    const officeText = payload?.officeName || section.office || "--";
+    const center = extent.length === 4 ? { lat: (extent[1] + extent[3]) / 2, lng: (extent[0] + extent[2]) / 2 } : null;
+    const navUrl = googleNavigationUrl(center);
+
+    controls.result.innerHTML = `
+      <strong>已套繪：${escapeHtml(section.name)} ${escapeHtml(formatParcel(number))} 地號</strong>
+      <span>國土測繪圖資已定位套繪。點擊地圖上的紅框標註或下方按鈕可導航或加入收藏。</span>
+      <dl>
+        <dt>縣市</dt><dd>${escapeHtml(city?.name || "")}</dd>
+        <dt>行政區</dt><dd>${escapeHtml(town.name)}</dd>
+        <dt>地段</dt><dd>${escapeHtml(section.name)}（${escapeHtml(section.code)}）</dd>
+        <dt>事務所</dt><dd>${escapeHtml(officeText)}</dd>
+        <dt>地號</dt><dd>${escapeHtml(formatParcel(number))}</dd>
+        <dt>經緯度範圍</dt><dd class="v2-cadastre-extent">${escapeHtml(extentText)}</dd>
+      </dl>
+      <div class="v2-cadastre-result-actions" style="display:flex;gap:8px;margin-top:8px;">
+        ${navUrl ? `<a class="v2-cadastre-action" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-decoration:none;font-size:12px;min-height:34px;display:flex;align-items:center;justify-content:center;">🗺️ 導航</a>` : ""}
+        <button type="button" class="v2-cadastre-action is-secondary" data-cadastre-retain style="flex:1;font-size:12px;min-height:34px;cursor:pointer;">⭐ 收藏</button>
+      </div>
+    `;
     controls.result.hidden = false;
   }
 
-  function drawImageOverlay(payload, town, section, number) {
+  function drawImageOverlay(payload, city, town, section, number) {
     const map = getMap();
-    if (!map || !window.L) throw new Error("地圖尚未完成初始化。" );
+    if (!map || !window.L) throw new Error("地圖尚未完成初始化。");
     const layers = imageLayers(payload);
-    if (!layers.length) throw new Error("國土測繪服務未回傳可套繪的圖片圖層。" );
+    if (!layers.length) throw new Error("國土測繪服務未回傳可套繪的圖片圖層。");
     clearOverlay({ keepStatus: true });
+
     const paneName = "cadastrePaneV2";
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
     }
     map.getPane(paneName).style.zIndex = "450";
-    map.getPane(paneName).style.pointerEvents = "none";
+    map.getPane(paneName).style.pointerEvents = "auto";
+
     const group = L.featureGroup();
     const bounds = L.latLngBounds([]);
+
     layers.forEach(layer => {
       const [west, south, east, north] = layer.extent;
       const imageBounds = [[south, west], [north, east]];
       const source = layer.image.startsWith("data:") ? layer.image : `data:${layer.mimeType};base64,${layer.image}`;
-      L.imageOverlay(source, imageBounds, { pane: paneName, opacity: 0.82, interactive: false }).addTo(group);
+      L.imageOverlay(source, imageBounds, { pane: paneName, opacity: 0.88, interactive: false }).addTo(group);
       bounds.extend(L.latLngBounds(imageBounds));
+
+      const center = { lat: (south + north) / 2, lng: (west + east) / 2 };
+      const navUrl = googleNavigationUrl(center);
+      const popupHtml = `
+        <div class="v2-cadastre-popup">
+          <strong>${escapeHtml(section.name)} ${escapeHtml(formatParcel(number))} 地號</strong><br>
+          <span>${escapeHtml(city?.name || "")} ${escapeHtml(town.name)} · ${escapeHtml(section.code)}</span><br>
+          <span>事務所：${escapeHtml(payload.officeName || section.office || "--")}</span>
+          <div class="v2-cadastre-popup-actions" style="margin-top:8px;">
+            ${navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener">🗺️ 導航</a>` : ""}
+            <button type="button" data-cadastre-retain-popup style="background:#ecfeff;color:#0f766e;border:1px solid #0f766e;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">⭐ 收藏</button>
+            <button class="popup-clear-location-button" type="button" data-clear-cadastre-overlay>✕ 清除</button>
+          </div>
+        </div>
+      `;
+
+      const rect = L.rectangle(imageBounds, {
+        pane: paneName,
+        color: "#b45309",
+        weight: 2,
+        fillColor: "#f59e0b",
+        fillOpacity: 0.08,
+        interactive: true,
+      });
+      rect.bindPopup(popupHtml);
+      rect.addTo(group);
     });
+
     group.addTo(map);
     state.overlayLayer = group;
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [32, 32], maxZoom: 20 });
-    showImageResult(layers, town, section, number);
+
+    currentCadastreData = { city, town, section, number, payload };
+    currentCadastrePayload = payload;
+
+    showImageResult(layers, city, town, section, number, payload);
+
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 19 });
+    }
+
+    const center = bounds.isValid() ? bounds.getCenter() : null;
+    if (center) {
+      window.setTimeout(() => {
+        const rectLayer = group.getLayers().find(l => typeof l.openPopup === "function");
+        rectLayer?.openPopup();
+      }, 400);
+    }
   }
 
   function geoJsonCollection(payload) {
     if (payload?.type === "FeatureCollection" && Array.isArray(payload.features)) return payload;
     if (payload?.geojson?.type === "FeatureCollection" && Array.isArray(payload.geojson.features)) return payload.geojson;
-    throw new Error("地籍查詢服務未回傳可套繪的 GeoJSON。" );
+    throw new Error("地籍查詢服務未回傳可套繪的 GeoJSON。");
   }
 
   function featureProperty(feature, names) {
@@ -488,9 +619,6 @@
     return "";
   }
 
-  // Keep the official field codes so the result card can show the same
-  // attributes as the government map, while still accepting the normalized
-  // names returned by older GAS deployments.
   const CADASTRE_DETAIL_FIELDS = [
     { key: "TNAME", label: "鄉鎮名", aliases: ["TNAME", "town"] },
     { key: "SECT", label: "地段號", aliases: ["SECT", "section"] },
@@ -516,12 +644,8 @@
   function formatCadastreDate(value) {
     const text = String(value || "").trim();
     const digits = text.replace(/\D/g, "");
-    if (/^\d{7}$/.test(digits)) {
-      return `${digits.slice(0, 3)}年${digits.slice(3, 5)}月${digits.slice(5, 7)}日`;
-    }
-    if (/^0\d{7}$/.test(digits)) {
-      return `${digits.slice(1, 4)}年${digits.slice(4, 6)}月${digits.slice(6, 8)}日`;
-    }
+    if (/^\d{7}$/.test(digits)) return `${digits.slice(0, 3)}年${digits.slice(3, 5)}月${digits.slice(5, 7)}日`;
+    if (/^0\d{7}$/.test(digits)) return `${digits.slice(1, 4)}年${digits.slice(4, 6)}月${digits.slice(6, 8)}日`;
     return text;
   }
 
@@ -531,9 +655,7 @@
     if (field.key === "AA05") return formatCadastreDate(text);
     if (["AREA", "AA16", "AA17"].includes(field.key)) {
       const number = Number(text.replace(/,/g, ""));
-      if (Number.isFinite(number)) {
-        return number.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
-      }
+      if (Number.isFinite(number)) return number.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
     }
     return text;
   }
@@ -555,74 +677,88 @@
     return "";
   }
 
-  function parcelPopupHtml(feature, town, section, number, resolution) {
+  function parcelPopupHtml(feature, city, town, section, number, resolution) {
     const featureTown = featureProperty(feature, ["town", "TNAME"]) || town?.name || "--";
     const sectionName = featureProperty(feature, ["sectionName", "SECNAME", "KCNT"]) || section?.name || "--";
     const sectionCode = featureProperty(feature, ["section", "SECT", "AA48"]) || section?.code || "--";
     const parcelNo8 = featureProperty(feature, ["parcelNo8", "LANDNO8", "AA49"]);
-    const parcel = featureProperty(feature, ["parcelNumber", "LAND_NO"])
-      || (parcelNo8 ? formatParcel(parcelNo8) : formatParcel(number));
+    const parcel = featureProperty(feature, ["parcelNumber", "LAND_NO"]) || (parcelNo8 ? formatParcel(parcelNo8) : formatParcel(number));
     const area = featureProperty(feature, ["area", "AREA"]);
     const evolution = resolutionText(resolution);
     const navigationUrl = googleNavigationUrl(featureMapCenter(feature));
     const actions = `<div class="v2-cadastre-popup-actions">${navigationUrl ? `<a class="popup-navigation-link" href="${navigationUrl}" target="_blank" rel="noopener">🗺️ 導航</a>` : ""}<button type="button" data-cadastre-retain-popup style="background:#ecfeff;color:#0f766e;border:1px solid #0f766e;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">⭐ 收藏</button><button class="popup-clear-location-button" type="button" data-clear-cadastre-overlay>✕ 清除</button></div>`;
-    return `<div class="v2-cadastre-popup"><strong>${escapeHtml(sectionName)} ${escapeHtml(parcel)} 地號</strong><br><span>${escapeHtml(featureTown)} · ${escapeHtml(sectionCode)}</span>${evolution ? `<br><span class="v2-cadastre-popup-evolution">↳ ${escapeHtml(evolution)}</span>` : ""}${area ? `<br><span>面積：${escapeHtml(formatCadastreValue({ key: "AREA" }, area))}</span>` : ""}<details class="v2-cadastre-popup-details"><summary>詳細屬性</summary><dl class="v2-cadastre-detail-list">${detailRowsHtml(feature)}</dl></details>${actions}</div>`;
+    return `<div class="v2-cadastre-popup"><strong>${escapeHtml(sectionName)} ${escapeHtml(parcel)} 地號</strong><br><span>${escapeHtml(city?.name || "")} ${escapeHtml(featureTown)} · ${escapeHtml(sectionCode)}</span>${evolution ? `<br><span class="v2-cadastre-popup-evolution">↳ ${escapeHtml(evolution)}</span>` : ""}${area ? `<br><span>面積：${escapeHtml(formatCadastreValue({ key: "AREA" }, area))}</span>` : ""}<details class="v2-cadastre-popup-details"><summary>詳細屬性</summary><dl class="v2-cadastre-detail-list">${detailRowsHtml(feature)}</dl></details>${actions}</div>`;
   }
 
-  let currentCadastreData = null;
-  function showGeoJsonResult(feature, town, section, number, resolution) {
+  function showGeoJsonResult(feature, city, town, section, number, resolution) {
     if (!controls.result) return;
     const featureTown = featureProperty(feature, ["town", "TNAME"]) || town?.name || "--";
     const sectionName = featureProperty(feature, ["sectionName", "SECNAME", "KCNT"]) || section?.name || "--";
     const sectionCode = featureProperty(feature, ["section", "SECT", "AA48"]) || section?.code || "--";
     const parcelNo8 = featureProperty(feature, ["parcelNo8", "LANDNO8", "AA49"]);
-    const parcel = featureProperty(feature, ["parcelNumber", "LAND_NO"])
-      || (parcelNo8 ? formatParcel(parcelNo8) : formatParcel(number));
+    const parcel = featureProperty(feature, ["parcelNumber", "LAND_NO"]) || (parcelNo8 ? formatParcel(parcelNo8) : formatParcel(number));
     const area = featureProperty(feature, ["area", "AREA"]);
     const landUse = featureProperty(feature, ["landUse", "LUSE", "AA06"]);
     const evolution = resolutionText(resolution);
-    controls.result.innerHTML = `<strong>已套繪：${escapeHtml(sectionName)} ${escapeHtml(parcel)} 地號</strong><span>${evolution ? escapeHtml(evolution) : "地籍範圍已顯示在目前地圖上。點擊地圖上的範圍彈窗可保留。"}</span><dl class="v2-cadastre-summary"><dt>縣市</dt><dd>臺南市</dd><dt>鄉鎮市區</dt><dd>${escapeHtml(featureTown)}</dd><dt>地段</dt><dd>${escapeHtml(sectionName)}（${escapeHtml(sectionCode)}）</dd><dt>地號</dt><dd>${escapeHtml(parcel)}${parcelNo8 ? `（${escapeHtml(parcelNo8)}）` : ""}</dd>${evolution ? `<dt>資料演進</dt><dd>${escapeHtml(evolution)}</dd>` : ""}${area ? `<dt>面積</dt><dd>${escapeHtml(formatCadastreValue({ key: "AREA" }, area))}</dd>` : ""}${landUse ? `<dt>登記原因</dt><dd>${escapeHtml(landUse)}</dd>` : ""}</dl><details class="v2-cadastre-details" open><summary>完整地籍屬性</summary><dl class="v2-cadastre-detail-list">${detailRowsHtml(feature)}</dl></details>`;
+    const center = featureMapCenter(feature);
+    const navUrl = googleNavigationUrl(center);
+
+    controls.result.innerHTML = `
+      <strong>已套繪：${escapeHtml(sectionName)} ${escapeHtml(parcel)} 地號</strong>
+      <span>${evolution ? escapeHtml(evolution) : "地籍範圍已顯示在目前地圖上。點擊地圖標註或下方按鈕可導航或加入收藏。"}</span>
+      <dl class="v2-cadastre-summary">
+        <dt>縣市</dt><dd>${escapeHtml(city?.name || "")}</dd>
+        <dt>鄉鎮市區</dt><dd>${escapeHtml(featureTown)}</dd>
+        <dt>地段</dt><dd>${escapeHtml(sectionName)}（${escapeHtml(sectionCode)}）</dd>
+        <dt>地號</dt><dd>${escapeHtml(parcel)}${parcelNo8 ? `（${escapeHtml(parcelNo8)}）` : ""}</dd>
+        ${evolution ? `<dt>資料演進</dt><dd>${escapeHtml(evolution)}</dd>` : ""}
+        ${area ? `<dt>面積</dt><dd>${escapeHtml(formatCadastreValue({ key: "AREA" }, area))}</dd>` : ""}
+        ${landUse ? `<dt>登記原因</dt><dd>${escapeHtml(landUse)}</dd>` : ""}
+      </dl>
+      <div class="v2-cadastre-result-actions" style="display:flex;gap:8px;margin-top:8px;">
+        ${navUrl ? `<a class="v2-cadastre-action" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-decoration:none;font-size:12px;min-height:34px;display:flex;align-items:center;justify-content:center;">🗺️ 導航</a>` : ""}
+        <button type="button" class="v2-cadastre-action is-secondary" data-cadastre-retain style="flex:1;font-size:12px;min-height:34px;cursor:pointer;">⭐ 收藏</button>
+      </div>
+      <details class="v2-cadastre-details" open><summary>完整地籍屬性</summary><dl class="v2-cadastre-detail-list">${detailRowsHtml(feature)}</dl></details>
+    `;
     controls.result.hidden = false;
-    currentCadastreData = { town, section, number, feature, resolution };
+    currentCadastreData = { city, town, section, number, feature, resolution };
   }
 
-  let currentCadastrePayload = null;
-  function drawGeoJsonOverlay(payload, town, section, number) {
+  function drawGeoJsonOverlay(payload, city, town, section, number) {
     currentCadastrePayload = payload;
     const map = getMap();
-    if (!map || !window.L) throw new Error("地圖尚未完成初始化。" );
+    if (!map || !window.L) throw new Error("地圖尚未完成初始化。");
     const collection = geoJsonCollection(payload);
     const resolution = parcelResolution(payload);
     const features = collection.features.filter(feature => feature?.geometry?.coordinates?.length);
-    if (!features.length) throw new Error("查無這筆地號的地籍圖形。" );
+    if (!features.length) throw new Error("查無這筆地號的地籍圖形。");
     clearOverlay({ keepStatus: true });
+
     const paneName = "cadastrePaneV2";
     if (!map.getPane(paneName)) map.createPane(paneName);
     map.getPane(paneName).style.zIndex = "450";
     map.getPane(paneName).style.pointerEvents = "auto";
+
     state.overlayLayer = L.geoJSON({ type: "FeatureCollection", features }, {
       pane: paneName,
-      style: {
-        color: "#b45309",
-        fillColor: "#fbbf24",
-        fillOpacity: 0.28,
-        weight: 3,
-      },
-      onEachFeature: (feature, layer) => layer.bindPopup(parcelPopupHtml(feature, town, section, number, resolution)),
+      style: { color: "#b45309", fillColor: "#fbbf24", fillOpacity: 0.28, weight: 3 },
+      onEachFeature: (feature, layer) => layer.bindPopup(parcelPopupHtml(feature, city, town, section, number, resolution)),
     }).addTo(map);
+
     const bounds = state.overlayLayer.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [32, 32], maxZoom: 20 });
-    showGeoJsonResult(features[0], town, section, number, resolution);
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 19 });
+    showGeoJsonResult(features[0], city, town, section, number, resolution);
     const firstFeatureLayer = state.overlayLayer.getLayers()[0];
-    window.setTimeout(() => firstFeatureLayer?.openPopup(), 350);
+    window.setTimeout(() => firstFeatureLayer?.openPopup(), 400);
   }
 
-  function drawParcelOverlay(payload, town, section, number) {
+  function drawParcelOverlay(payload, city, town, section, number) {
     if (adapterMode() === "image" || payload?.type === "imageLayers" || Array.isArray(payload?.imageLayers) || Array.isArray(payload?.layers)) {
-      drawImageOverlay(payload, town, section, number);
+      drawImageOverlay(payload, city, town, section, number);
       return;
     }
-    drawGeoJsonOverlay(payload, town, section, number);
+    drawGeoJsonOverlay(payload, city, town, section, number);
   }
 
   async function submit(event) {
@@ -631,8 +767,10 @@
     const town = selectedTown();
     const section = selectedSection(town);
     const number = parcelNo8(controls.parcel?.value);
+
     if (!city) {
-      setStatus("臺南市地籍下拉清單尚未載入，請稍後再試。", { error: true });
+      setStatus("請選擇縣市。", { error: true });
+      controls.city?.focus();
       return;
     }
     if (!town) {
@@ -650,11 +788,12 @@
       controls.parcel?.focus();
       return;
     }
+
     const requestSequence = ++state.requestSequence;
     clearOverlay({ keepStatus: true });
     setBusy(true);
-    const imageMode = adapterMode() === "image";
-    setStatus(imageMode ? "查詢地籍圖片並套繪中…" : "查詢地籍範圍並套繪中…", { loading: true });
+    setStatus("查詢國土測繪地籍並套繪中…", { loading: true });
+
     try {
       const payload = await requestParcel({
         city: city.code,
@@ -663,14 +802,14 @@
         townCode: town.code,
         sectionCode: section.code,
         sectionName: section.name,
+        office: section.office || "",
+        officeCode: section.office || "",
         number,
       });
+
       if (requestSequence !== state.requestSequence) return;
-      drawParcelOverlay(payload, town, section, number);
-      const resolution = parcelResolution(payload);
-      setStatus(imageMode
-        ? "已完成國土測繪圖片套繪。"
-        : (resolution?.type === "resurvey" ? "已完成重測後地籍面套繪。" : "已完成地籍範圍套繪。"));
+      drawParcelOverlay(payload, city, town, section, number);
+      setStatus("已完成國土測繪地籍套繪。");
       setPanelOpen(false);
     } catch (error) {
       if (requestSequence !== state.requestSequence) return;
@@ -697,66 +836,142 @@
     if (deleteBtn) deleteBtn.disabled = cadastreSelectedIds.size === 0;
     if (selectAllCb) selectAllCb.checked = cadastreSelectedIds.size > 0 && cadastreSelectedIds.size === cadastreBookmarks.length;
     if (!cadastreBookmarks.length) {
-      list.innerHTML = '<p style="color:#999;font-size:12px;padding:12px;text-align:center;">尚無收藏，查詢後按「收藏」即可加入</p>';
+      list.innerHTML = '<p style="color:#999;font-size:12px;padding:12px;text-align:center;">尚無收藏，查詢後點選「收藏」即可加入</p>';
       updateCadastreBookmarkLayers();
       return;
     }
     list.innerHTML = cadastreBookmarks.map(b => {
-      const fullTitle = `${b.town} ${b.sectionName} ${formatParcel(b.number)}`;
+      const cityName = b.cityName || b.city || "";
+      const fullTitle = `${cityName} ${b.town} ${b.sectionName} ${formatParcel(b.number)}`;
       const hidden = b.visible === false;
       return `
       <div class="v2-bookmark-item${hidden ? " is-hidden" : ""}" data-id="${escapeHtml(b.id)}">
         <div class="v2-bookmark-item-head">
-          <span class="v2-bookmark-item-label"><input type="checkbox" data-cadastre-check="${escapeHtml(b.id)}" ${cadastreSelectedIds.has(b.id)?"checked":""}> <span class="v2-bookmark-item-title" title="${escapeHtml(fullTitle)}">${escapeHtml(fullTitle)}</span></span>
+          <span class="v2-bookmark-item-label">
+            <input type="checkbox" data-cadastre-check="${escapeHtml(b.id)}" ${cadastreSelectedIds.has(b.id) ? "checked" : ""}> 
+            <span class="v2-bookmark-item-title" title="${escapeHtml(fullTitle)}">${escapeHtml(fullTitle)}</span>
+          </span>
           <div class="v2-bookmark-item-actions">
             <button type="button" data-cadastre-action="toggle" data-id="${escapeHtml(b.id)}" title="${hidden ? "顯示" : "隱藏"}" aria-label="${hidden ? "顯示" : "隱藏"}">${hidden ? "🙈" : "👁️"}</button>
             <button type="button" data-cadastre-action="remove" data-id="${escapeHtml(b.id)}" title="刪除" aria-label="刪除">🗑️</button>
           </div>
         </div>
       </div>
-    `;}).join("");
+    `;
+    }).join("");
     updateCadastreBookmarkLayers();
   }
+
   function updateCadastreBookmarkLayers() {
     const map = getMap();
     if (!map || !window.L) return;
-    // Clear existing
+
     for (const layer of cadastreBookmarkLayers.values()) {
       if (map.hasLayer(layer)) map.removeLayer(layer);
     }
     cadastreBookmarkLayers.clear();
+
     const paneName = "cadastrePaneV2";
-    if (!map.getPane(paneName)) { map.createPane(paneName); map.getPane(paneName).style.zIndex = "450"; map.getPane(paneName).style.pointerEvents = "auto"; }
+    if (!map.getPane(paneName)) {
+      map.createPane(paneName);
+      map.getPane(paneName).style.zIndex = "450";
+      map.getPane(paneName).style.pointerEvents = "auto";
+    }
+
     cadastreBookmarks.forEach(b => {
       if (b.visible === false) return;
-      if (!b.geojson) return;
-      try {
-        const feature = b.geojson.features?.[0];
-        const center = feature ? featureMapCenter(feature) : null;
-        const navUrl = center ? googleNavigationUrl(center) : "";
-        const navBtn = navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="margin-right:6px;">🗺️ 導航</a>` : "";
-        const detailHtml = feature ? `<details class="v2-cadastre-popup-details"><summary>詳細屬性</summary><dl class="v2-cadastre-detail-list">${detailRowsHtml(feature)}</dl></details>` : "";
-        const layer = L.geoJSON(b.geojson, {
-          pane: paneName,
-          style: { color: "#b45309", fillColor: "#fbbf24", fillOpacity: 0.28, weight: 2 },
-          onEachFeature: (feat, lyr) => lyr.bindPopup(`<div class="v2-cadastre-popup"><strong>${escapeHtml(b.sectionName)} ${escapeHtml(formatParcel(b.number))}</strong><br>${escapeHtml(b.town)} · ${escapeHtml(b.section)}${feature ? `<br><span>面積：${escapeHtml(formatCadastreValue({ key: "AREA" }, featureProperty(feature, ["area", "AREA"])) )}</span>` : ""}${detailHtml}<div class="v2-cadastre-popup-actions" style="margin-top:8px;">${navBtn}<button type="button" data-cadastre-bookmark-hide="${escapeHtml(b.id)}" style="background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">🙈 隱藏</button></div></div>`)
-        }).addTo(map);
-        cadastreBookmarkLayers.set(b.id, layer);
-      } catch {}
+
+      // Handle Image Overlay Bookmarks
+      if (Array.isArray(b.imageLayers) && b.imageLayers.length) {
+        try {
+          const group = L.featureGroup();
+          b.imageLayers.forEach(lyr => {
+            const [west, south, east, north] = lyr.extent;
+            const bounds = [[south, west], [north, east]];
+            const source = lyr.image.startsWith("data:") ? lyr.image : `data:${lyr.mimeType || "image/png"};base64,${lyr.image}`;
+            L.imageOverlay(source, bounds, { pane: paneName, opacity: 0.85, interactive: false }).addTo(group);
+
+            const center = { lat: (south + north) / 2, lng: (west + east) / 2 };
+            const navUrl = googleNavigationUrl(center);
+            const rect = L.rectangle(bounds, {
+              pane: paneName,
+              color: "#0f766e",
+              weight: 2,
+              fillColor: "#0d9488",
+              fillOpacity: 0.08,
+              interactive: true,
+            });
+            rect.bindPopup(`
+              <div class="v2-cadastre-popup">
+                <strong>${escapeHtml(b.sectionName)} ${escapeHtml(formatParcel(b.number))}</strong><br>
+                <span>${escapeHtml(b.cityName || b.city || "")} ${escapeHtml(b.town)} · ${escapeHtml(b.section)}</span>
+                <div class="v2-cadastre-popup-actions" style="margin-top:8px;">
+                  ${navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="margin-right:6px;">🗺️ 導航</a>` : ""}
+                  <button type="button" data-cadastre-bookmark-hide="${escapeHtml(b.id)}" style="background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">🙈 隱藏</button>
+                </div>
+              </div>
+            `);
+            rect.addTo(group);
+          });
+          group.addTo(map);
+          cadastreBookmarkLayers.set(b.id, group);
+        } catch {}
+        return;
+      }
+
+      // Handle GeoJSON Bookmarks
+      if (b.geojson) {
+        try {
+          const feature = b.geojson.features?.[0];
+          const center = feature ? featureMapCenter(feature) : null;
+          const navUrl = center ? googleNavigationUrl(center) : "";
+          const navBtn = navUrl ? `<a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="margin-right:6px;">🗺️ 導航</a>` : "";
+          const detailHtml = feature ? `<details class="v2-cadastre-popup-details"><summary>詳細屬性</summary><dl class="v2-cadastre-detail-list">${detailRowsHtml(feature)}</dl></details>` : "";
+          const layer = L.geoJSON(b.geojson, {
+            pane: paneName,
+            style: { color: "#b45309", fillColor: "#fbbf24", fillOpacity: 0.28, weight: 2 },
+            onEachFeature: (feat, lyr) => lyr.bindPopup(`<div class="v2-cadastre-popup"><strong>${escapeHtml(b.sectionName)} ${escapeHtml(formatParcel(b.number))}</strong><br>${escapeHtml(b.cityName || b.city || "")} ${escapeHtml(b.town)} · ${escapeHtml(b.section)}${feature ? `<br><span>面積：${escapeHtml(formatCadastreValue({ key: "AREA" }, featureProperty(feature, ["area", "AREA"])))}</span>` : ""}${detailHtml}<div class="v2-cadastre-popup-actions" style="margin-top:8px;">${navBtn}<button type="button" data-cadastre-bookmark-hide="${escapeHtml(b.id)}" style="background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;min-height:28px;padding:4px 8px;font-weight:800;cursor:pointer;">🙈 隱藏</button></div></div>`),
+          }).addTo(map);
+          cadastreBookmarkLayers.set(b.id, layer);
+        } catch {}
+      }
     });
   }
-  function addCadastreBookmark(town, section, number, payload) {
+
+  function addCadastreBookmark(city, town, section, number, payload) {
     try {
       const exists = cadastreBookmarks.some(b => b.townCode === town.code && b.section === section.code && b.number === number);
       if (exists) { showToast(`已收藏過 ${section.name} ${formatParcel(number)}`, "dup"); return; }
-      const geojson = geoJsonCollection(payload);
+
       const id = `${town.code}_${section.code}_${number}_${Date.now()}`;
-      cadastreBookmarks.push({ id, town: town.name, townCode: town.code, section: section.code, sectionName: section.name, number, geojson, visible: true, createdAt: new Date().toISOString() });
+      const entry = {
+        id,
+        city: city?.name || "",
+        cityName: city?.name || "",
+        cityCode: city?.code || "",
+        town: town.name,
+        townCode: town.code,
+        section: section.code,
+        sectionName: section.name,
+        office: section.office || payload.office || "",
+        number,
+        visible: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      if (Array.isArray(payload.imageLayers) && payload.imageLayers.length) {
+        entry.imageLayers = payload.imageLayers;
+      } else if (payload.geojson || payload.features) {
+        entry.geojson = geoJsonCollection(payload);
+      }
+
+      cadastreBookmarks.push(entry);
       saveCadastreBookmarks();
       renderCadastreBookmarks();
       showToast(`已收藏 ${section.name} ${formatParcel(number)}`);
-    } catch (e) { showToast("收藏失敗", "error"); }
+    } catch (e) { showToast("收藏失敗：" + (e.message || ""), "error"); }
   }
+
   function bindBookmarkTabs() {
     document.querySelectorAll(".v2-tab-btn[data-panel='cadastre']").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -772,6 +987,7 @@
         });
       });
     });
+
     const cadastreListEl = document.getElementById("v2CadastreBookmarks");
     cadastreListEl?.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-cadastre-action]");
@@ -782,7 +998,7 @@
         const bm = cadastreBookmarks.find(b => b.id === id);
         if (!bm) return;
         if (action === "toggle") {
-          bm.visible = bm.visible === false ? true : false;
+          bm.visible = bm.visible === false;
           saveCadastreBookmarks();
           renderCadastreBookmarks();
         } else if (action === "remove") {
@@ -793,50 +1009,45 @@
         }
         return;
       }
+
       const item = e.target.closest(".v2-bookmark-item");
       if (!item) return;
-      // Checkbox / button clicks should not trigger flyto
       if (e.target.closest("[data-cadastre-check]") || e.target.closest("button")) return;
       const id = item.dataset.id;
       const bm = cadastreBookmarks.find(b => b.id === id);
       let layer = cadastreBookmarkLayers.get(id);
       const map = getMap();
       if (!bm || !map) return;
+
       if (bm.visible === false) {
         bm.visible = true;
         saveCadastreBookmarks();
         renderCadastreBookmarks();
-        // Re-fetch layer after re-render
         layer = cadastreBookmarkLayers.get(id);
         if (!layer) return;
       }
       if (!layer) return;
+
       try {
-        map.flyToBounds(layer.getBounds(), { padding: [32, 32], maxZoom: 19, duration: 0.5 });
-        // 重抓圖層再開 popup：中間若發生重渲染，舊引用已失效
-        setTimeout(() => cadastreBookmarkLayers.get(id)?.getLayers()[0]?.openPopup(), 600);
+        if (typeof layer.getBounds === "function") {
+          map.flyToBounds(layer.getBounds(), { padding: [32, 32], maxZoom: 19, duration: 0.5 });
+          setTimeout(() => {
+            const targetPopupLayer = typeof layer.openPopup === "function" ? layer : layer.getLayers?.().find(l => typeof l.openPopup === "function");
+            targetPopupLayer?.openPopup();
+          }, 600);
+        }
       } catch {}
-      // 手機上飛過去後把面板收起來，才看得到地圖
+
       if (window.matchMedia("(max-width: 768px)").matches) setPanelOpen(false);
     });
-    cadastreListEl?.addEventListener("mouseenter", (e) => {
-      const item = e.target.closest(".v2-bookmark-item");
-      if (!item) return;
-      const layer = cadastreBookmarkLayers.get(item.dataset.id);
-      if (layer) layer.setStyle({ fillOpacity: 0.45, weight: 4 });
-    }, true);
-    cadastreListEl?.addEventListener("mouseleave", (e) => {
-      const item = e.target.closest(".v2-bookmark-item");
-      if (!item) return;
-      const layer = cadastreBookmarkLayers.get(item.dataset.id);
-      if (layer) layer.setStyle({ fillOpacity: 0.28, weight: 3 });
-    }, true);
+
     document.getElementById("v2CadastreBookmarksToggle")?.addEventListener("click", () => {
       const allVisible = cadastreBookmarks.every(b => b.visible !== false);
       cadastreBookmarks.forEach(b => b.visible = !allVisible);
       saveCadastreBookmarks();
       renderCadastreBookmarks();
     });
+
     document.addEventListener("click", (e) => {
       const hideBtn = e.target.closest("[data-cadastre-bookmark-hide]");
       if (!hideBtn) return;
@@ -848,11 +1059,13 @@
       renderCadastreBookmarks();
       getMap()?.closePopup();
     });
+
     document.getElementById("v2CadastreSelectAll")?.addEventListener("change", (e) => {
       if (e.target.checked) cadastreBookmarks.forEach(b => cadastreSelectedIds.add(b.id));
       else cadastreSelectedIds.clear();
       renderCadastreBookmarks();
     });
+
     cadastreListEl?.addEventListener("change", (e) => {
       const cb = e.target.closest("[data-cadastre-check]");
       if (!cb) return;
@@ -860,6 +1073,7 @@
       else cadastreSelectedIds.delete(cb.dataset.cadastreCheck);
       renderCadastreBookmarks();
     });
+
     document.getElementById("v2CadastreBookmarksDelete")?.addEventListener("click", () => {
       if (!cadastreSelectedIds.size) return;
       cadastreBookmarks = cadastreBookmarks.filter(b => !cadastreSelectedIds.has(b.id));
@@ -867,6 +1081,7 @@
       saveCadastreBookmarks();
       renderCadastreBookmarks();
     });
+
     document.getElementById("v2CadastreDriveUpload")?.addEventListener("click", () => {
       window.__bookmarkDrive?.upload("cadastre");
     });
@@ -880,15 +1095,16 @@
 
   function bindEvents() {
     bindBookmarkTabs();
+
     document.addEventListener("click", (e) => {
-      if (!e.target.closest("[data-cadastre-retain-popup]")) return;
+      if (!e.target.closest("[data-cadastre-retain]") && !e.target.closest("[data-cadastre-retain-popup]")) return;
       if (!currentCadastreData || !currentCadastrePayload) { setStatus("無可保留的資料", { error: true }); return; }
-      addCadastreBookmark(currentCadastreData.town, currentCadastreData.section, currentCadastreData.number, currentCadastrePayload);
+      addCadastreBookmark(currentCadastreData.city, currentCadastreData.town, currentCadastreData.section, currentCadastreData.number, currentCadastrePayload);
     });
+
     document.addEventListener("click", (e) => {
       if (!controls.panel?.classList.contains("is-open")) return;
       if (e.target.closest("#v2CadastrePanel") || e.target.closest("#v2CadastreToggle") || e.target.closest(".v2-bookmark-tabs") || e.target.closest("#globalModal") || e.target.closest(".photo-viewer")) return;
-      // Clicked outside the panel content, switch bookmarks tab back to search
       const activeBookmarkTab = document.querySelector('.v2-tab-btn[data-panel="cadastre"][data-tab="bookmarks"].is-active');
       if (activeBookmarkTab) {
         document.querySelectorAll('.v2-tab-btn[data-panel="cadastre"]').forEach(b => {
@@ -902,10 +1118,12 @@
         });
       }
     });
+
     controls.toggle?.addEventListener("click", () => setPanelOpen(!controls.panel?.classList.contains("is-open")));
     controls.close?.addEventListener("click", () => setPanelOpen(false));
     controls.form?.addEventListener("submit", submit);
     controls.clear?.addEventListener("click", clearQuery);
+
     document.addEventListener("click", event => {
       const clearButton = event.target instanceof Element ? event.target.closest("[data-clear-cadastre-overlay]") : null;
       if (!clearButton) return;
@@ -914,34 +1132,44 @@
       clearQuery({ focusParcel: false });
       setPanelOpen(false);
     });
-    controls.town?.addEventListener("change", () => {
+
+    controls.city?.addEventListener("change", () => {
       prepareNextQuery();
-      const town = selectedTown();
-      if (!town || !controls.sectionSearch) {
+      const cityCode = controls.city.value;
+      state.city = state.cities.find(c => c.code === cityCode) || null;
+      try { localStorage.setItem(CADASTRE_CITY_KEY, cityCode); } catch {}
+
+      if (!state.city) {
+        replaceOptions(controls.town, [], "請先選擇縣市");
+        if (controls.town) controls.town.disabled = true;
         resetSections();
         return;
       }
-      controls.section.value = "";
-      controls.sectionSearch.value = "";
-      controls.sectionSearch.disabled = !town.sections.length;
-      controls.sectionSearch.placeholder = town.sections.length ? "輸入地段關鍵字，例如 二王、永康" : "此行政區沒有可用地段";
-      replaceOptions(controls.sectionSelect, town.sections.map(section => ({
-        ...section,
-        label: `${section.name}（${section.code}）`,
-      })), town.sections.length ? "請從地段清單選取" : "此行政區沒有可用地段");
-      if (controls.sectionSelect) controls.sectionSelect.disabled = !town.sections.length;
-      setMatchesOpen(false);
-      setHint(town.sections.length ? `此行政區有 ${town.sections.length} 個地段。` : "此行政區沒有可用地段。" );
+
+      replaceOptions(controls.town, state.city.towns, `請選擇${state.city.name}行政區`);
+      if (controls.town) controls.town.disabled = false;
+      resetSections();
+      setStatus(`已選取${state.city.name}；請選擇鄉鎮市區。`);
     });
+
+    controls.town?.addEventListener("change", () => {
+      prepareNextQuery();
+      const town = selectedTown();
+      try { localStorage.setItem(CADASTRE_TOWN_KEY, town ? town.code : ""); } catch {}
+      updateTownSections(town);
+    });
+
     controls.sectionSearch?.addEventListener("input", () => {
       prepareNextQuery();
       if (controls.section) controls.section.value = "";
       if (controls.sectionSelect) controls.sectionSelect.value = "";
       renderMatches();
     });
+
     controls.sectionSearch?.addEventListener("focus", () => {
       if (normalizeText(controls.sectionSearch?.value)) renderMatches();
     });
+
     controls.sectionSearch?.addEventListener("keydown", event => {
       if (event.key === "Enter") {
         const [first] = matchesForKeyword();
@@ -952,6 +1180,7 @@
       }
       if (event.key === "Escape") setMatchesOpen(false);
     });
+
     controls.sectionSelect?.addEventListener("change", () => {
       const town = selectedTown();
       const section = town?.sections?.find(item => item.code === controls.sectionSelect?.value) || null;
@@ -965,11 +1194,14 @@
       }
       chooseSection(section);
     });
+
     controls.parcel?.addEventListener("input", prepareNextQuery);
+
     document.addEventListener("click", event => {
       if (!controls.panel?.classList.contains("is-open")) return;
       if (event.target.closest("#mapSearchToggle") || event.target.closest("#layerMenuToggle")) setPanelOpen(false);
     }, true);
+
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
         setMatchesOpen(false);

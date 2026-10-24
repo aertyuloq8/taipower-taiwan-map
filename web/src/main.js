@@ -129,6 +129,24 @@ window.__appBooted = true;
           routeBtn.setAttribute("aria-pressed", String(state.routeLayerVisible));
           if (routeState) routeState.textContent = state.routeLayerVisible ? "顯示" : "隱藏";
         }
+        const sectBtn = document.getElementById("overlayLANDSECTToggle");
+        const sectState = document.getElementById("overlayLANDSECTState");
+        if (sectBtn && typeof state !== "undefined") {
+          const visible = Boolean(state.landsectVisible);
+          sectBtn.classList.toggle("is-active", visible);
+          sectBtn.classList.toggle("is-hidden", !visible);
+          sectBtn.setAttribute("aria-pressed", String(visible));
+          if (sectState) sectState.textContent = visible ? "顯示" : "隱藏";
+        }
+        const townBtn = document.getElementById("overlayTOWNToggle");
+        const townState = document.getElementById("overlayTOWNState");
+        if (townBtn && typeof state !== "undefined") {
+          const visible = Boolean(state.townOverlayVisible);
+          townBtn.classList.toggle("is-active", visible);
+          townBtn.classList.toggle("is-hidden", !visible);
+          townBtn.setAttribute("aria-pressed", String(visible));
+          if (townState) townState.textContent = visible ? "顯示" : "隱藏";
+        }
       }
       layerMenuToggle?.addEventListener("click", () => {
         const willOpen = layerMenuPanel?.hidden !== false;
@@ -7450,6 +7468,58 @@ window.__appBooted = true;
         updateTpcGridReadout();
         syncLayerMenuState();
         setStatus(tpcGrid.visible ? "已顯示圖號網格；精確圖號請看地圖上方中心讀值" : "已隱藏圖號網格");
+        window.setTimeout(() => setStatus(""), 1800);
+        try { e.currentTarget.blur(); } catch (err) {}
+      });
+
+      // 國土測繪 段籍圖 (WMTS LANDSECT) 疊加
+      let landsectTileLayer = null;
+      document.getElementById("overlayLANDSECTToggle")?.addEventListener("click", (e) => {
+        state.landsectVisible = !state.landsectVisible;
+        if (state.landsectVisible) {
+          if (!landsectTileLayer) {
+            landsectTileLayer = L.tileLayer("https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}", {
+              maxZoom: 20,
+              opacity: 0.75,
+              zIndex: 300,
+              attribution: "國土測繪圖資服務雲"
+            });
+          }
+          landsectTileLayer.addTo(map);
+          setStatus("已疊加國土測繪段籍圖");
+        } else {
+          if (landsectTileLayer && map.hasLayer(landsectTileLayer)) {
+            map.removeLayer(landsectTileLayer);
+          }
+          setStatus("已取消段籍圖疊加");
+        }
+        syncLayerMenuState();
+        window.setTimeout(() => setStatus(""), 1800);
+        try { e.currentTarget.blur(); } catch (err) {}
+      });
+
+      // 國土測繪 鄉鎮界 (WMTS TOWN) 疊加
+      let townTileLayer = null;
+      document.getElementById("overlayTOWNToggle")?.addEventListener("click", (e) => {
+        state.townOverlayVisible = !state.townOverlayVisible;
+        if (state.townOverlayVisible) {
+          if (!townTileLayer) {
+            townTileLayer = L.tileLayer("https://wmts.nlsc.gov.tw/wmts/TOWN/default/GoogleMapsCompatible/{z}/{y}/{x}", {
+              maxZoom: 20,
+              opacity: 0.75,
+              zIndex: 301,
+              attribution: "國土測繪圖資服務雲"
+            });
+          }
+          townTileLayer.addTo(map);
+          setStatus("已疊加鄉鎮界圖層");
+        } else {
+          if (townTileLayer && map.hasLayer(townTileLayer)) {
+            map.removeLayer(townTileLayer);
+          }
+          setStatus("已取消鄉鎮界圖層");
+        }
+        syncLayerMenuState();
         window.setTimeout(() => setStatus(""), 1800);
         try { e.currentTarget.blur(); } catch (err) {}
       });
