@@ -6,7 +6,10 @@ window.CADASTRE_GAS_URL = "https://script.google.com/macros/s/AKfycbw5rYwcEBKZcv
 window.CADASTRE_GAS_MODE = "image";
 window.CADASTRE_DROPDOWN_DATA_URL = "./cadastral-dropdowns-tw.json";
 
-// 本地開發環境 (localhost / 127.0.0.1) 自動使用 Vite 極速 API
-if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-  window.CADASTRE_ADAPTER_URL = "/api/cadastre";
+// 自動環境偵測：本機 (localhost / 127.0.0.1) 與 Vercel 雲端環境自動啟用同源 /api/cadastre
+if (typeof window !== "undefined") {
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host.includes("vercel.app") || (!host.endsWith("github.io") && host !== "")) {
+    window.CADASTRE_ADAPTER_URL = "/api/cadastre";
+  }
 }

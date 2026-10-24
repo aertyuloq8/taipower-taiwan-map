@@ -1,0 +1,30 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/", "destination": "/web/index.html" },
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/data/(.*)", "destination": "/data/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/data/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, HEAD, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Range, Origin, Content-Type, Accept" },
+        { "key": "Access-Control-Expose-Headers", "value": "Content-Range, Content-Length, Accept-Ranges" },
+        { "key": "Accept-Ranges", "value": "bytes" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Origin, Content-Type, Accept, Range" }
+      ]
+    }
+  ]
+}

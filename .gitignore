@@ -36,3 +36,5 @@ tools/pmtiles_bin/
 !.env.example
 *.bak
 *.bak*
+scratch/
+scratch*.png
