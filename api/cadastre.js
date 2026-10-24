@@ -102,6 +102,12 @@ export default async function handler(req, res) {
           if (ralidJson.ralid.AA16) payload.declaredValue = ralidJson.ralid.AA16;
           if (ralidJson.ralid.AA17) payload.declaredPrice = ralidJson.ralid.AA17;
           if (ralidJson.ralid.AA05) payload.regDate = ralidJson.ralid.AA05;
+          if (ralidJson.ralid.AA11) {
+            try { payload.zone = Buffer.from(ralidJson.ralid.AA11, "base64").toString("utf8"); } catch {}
+          }
+          if (ralidJson.ralid.AA12) {
+            try { payload.landUse = Buffer.from(ralidJson.ralid.AA12, "base64").toString("utf8"); } catch {}
+          }
         }
         if (ralidJson?.land?.userList) {
           payload.userList = ralidJson.land.userList;
