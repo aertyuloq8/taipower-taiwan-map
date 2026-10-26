@@ -106,6 +106,13 @@
   function cleanAddrStr(s) {
     return String(s || "").normalize("NFKC")
       .replace(/[台臺]/g, "台")
+      .replace(/[腳脚]/g, "腳")
+      .replace(/[峰峯]/g, "峰")
+      .replace(/[庄莊]/g, "庄")
+      .replace(/[館舘]/g, "館")
+      .replace(/[廓廍]/g, "廍")
+      .replace(/[溝沟]/g, "溝")
+      .replace(/[灣湾]/g, "灣")
       .replace(/[()\[\]（）\s]+/g, "");
   }
 
@@ -127,13 +134,35 @@
     return { county, district };
   }
 
+  function extractStreetOrVillage(addr) {
+    let s = cleanAddrStr(addr);
+    s = s.replace(/^.*?[縣市]/, "").replace(/^.*?[區鄉鎮市]/, "");
+    s = s.replace(/^.*?里(?:\d+鄰)?/, "");
+    s = s.replace(/\d.*$/, "");
+    return s;
+  }
+
+  function extractDoorplateNumber(addr) {
+    const s = cleanAddrStr(addr).replace(/\d+鄰/g, "");
+    const m = s.match(/(\d+)(?:號[-－之]|[-－之])(\d+)/);
+    if (m) {
+      return { parent: m[1], sub: m[2], full: `${m[1]}-${m[2]}` };
+    }
+    const mSingle = s.match(/(\d+)(?:號)?/);
+    if (mSingle) {
+      return { parent: mSingle[1], sub: "", full: mSingle[1] };
+    }
+    return null;
+  }
+
   function canonicalAddr(s) {
     let str = cleanAddrStr(s);
     str = str.replace(/[^區鄉鎮市]+?里(?:\d+鄰)?/g, "");
-    str = str.replace(/(\d+)號之(\d+)號?/g, "$1-$2號");
-    str = str.replace(/(\d+)之(\d+)號?/g, "$1-$2號");
-    str = str.replace(/(\d+)[-－](\d+)號?/g, "$1-$2號");
-    str = str.replace(/[號樓Ff室].*$/g, "");
+    str = str.replace(/(\d+)號[-－之](\d+)(?:號)?/g, "$1-$2號");
+    str = str.replace(/(\d+)[-－之](\d+)號?/g, "$1-$2號");
+    str = str.replace(/[號].*?(?:[一二三四五六七八九十\d]+(?:[-－至到、][一二三四五六七八九十\d]+)?(?:樓|層|[Ff])).*$/g, "號");
+    str = str.replace(/(?:[一二三四五六七八九十\d]+(?:[-－至到、][一二三四五六七八九十\d]+)?(?:樓|層|[Ff])).*$/g, "");
+    str = str.replace(/號.*$/g, "");
     return str;
   }
 
@@ -151,15 +180,18 @@
     if (!Array.isArray(results) || results.length === 0) return null;
     const { county, district } = extractCountyDistrict(rawAddr);
     const targetCanonical = canonicalAddr(rawAddr);
+    const targetStreet = extractStreetOrVillage(rawAddr);
+    const targetNum = extractDoorplateNumber(rawAddr);
 
-    // 1. 精準比對（同縣市、同行政區且標準化門牌完全相符，例如「98-1號」對應「98號之1」）
+    if (!targetNum) return null;
+
+    // 1. 第一優先：同縣市區、路/地名相符，且標準化門牌完全相符（含異體字、子號 158-3、80-11、98-1 等）
     for (const item of results) {
       if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
       const itemAddr = cleanAddrStr(item.address);
       if (county && !itemAddr.includes(county)) continue;
       if (district && !itemAddr.includes(district)) continue;
       if (canonicalAddr(item.address) === targetCanonical) {
-        // 若有提供電桿座標，門牌與現場電桿距離不可超過合理引進線範圍 (300公尺，避免山區或農電通訊地帶偏)
         if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 0.3) {
           console.warn(`[Batch] 門牌與現場電桿相差 ${getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng).toFixed(2)} km，自動以電桿現場為準`);
           return null; // 回傳 null 自動觸發保底使用現場電桿圖號定位
@@ -168,32 +200,41 @@
       }
     }
 
-    // 2. 同路名與同門牌號比對（同縣市與同行政區內）
-    const roadMatch = rawAddr.match(/([^市縣區鄉鎮]+?[路街道巷弄])/);
-    const numMatch = rawAddr.match(/(\d+(?:[-－之]\d+)?)/);
-    if (roadMatch && numMatch) {
-      const targetRoad = cleanAddrStr(roadMatch[1]);
-      const targetNum = numMatch[1].replace(/[－之]/, "-");
+    // 2. 第二優先：同縣市區、路/地名相符，完整號碼一致（例如「158號之3」比對「158-3號」）
+    for (const item of results) {
+      if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+      const itemAddr = cleanAddrStr(item.address);
+      if (county && !itemAddr.includes(county)) continue;
+      if (district && !itemAddr.includes(district)) continue;
+      if (targetStreet && !itemAddr.includes(targetStreet)) continue;
 
-      for (const item of results) {
-        if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
-        const itemAddr = cleanAddrStr(item.address);
-        if (county && !itemAddr.includes(county)) continue;
-        if (district && !itemAddr.includes(district)) continue;
-        if (itemAddr.includes(targetRoad)) {
-          const itemNumMatch = itemAddr.match(/(\d+(?:[-－之號]\d+)?)/);
-          if (itemNumMatch && itemNumMatch[1].replace(/[－之號]/, "-") === targetNum) {
-            if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 0.3) {
-              return null;
-            }
-            return item;
-          }
+      const itemNum = extractDoorplateNumber(item.address);
+      if (itemNum && itemNum.full === targetNum.full) {
+        if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 0.3) {
+          continue;
         }
+        return item;
       }
     }
 
-    // 嚴格原則：若輸入明確包含門牌號（如 9號），官方查無該號時，嚴禁降級取同路的別家號碼（如 43號）！
-    // 尤其當已有電桿圖號時，直接退回現場電桿更為精準（現場掛表桿位）！
+    // 3. 第三優先：母號相同（例如查詢 91號，回傳 91號之1），且距離現場電桿 <= 300 公尺
+    for (const item of results) {
+      if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+      const itemAddr = cleanAddrStr(item.address);
+      if (county && !itemAddr.includes(county)) continue;
+      if (district && !itemAddr.includes(district)) continue;
+      if (targetStreet && !itemAddr.includes(targetStreet)) continue;
+
+      const itemNum = extractDoorplateNumber(item.address);
+      if (itemNum && itemNum.parent === targetNum.parent) {
+        if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 0.3) {
+          continue;
+        }
+        return item;
+      }
+    }
+
+    // 4. 嚴格安全原則：母號若不相同（如查 9號 卻只有 43號），或偏差逾 300 公尺，嚴禁採用別家門牌！
     return null;
   }
 
@@ -602,7 +643,7 @@
     let fallbackCount = 0;
 
     const tpcFunc = window.tpcCodeToLatLng;
-    const strategy = document.querySelector('input[name="batchLocStrategy"]:checked')?.value || "pole";
+    const strategy = document.querySelector('input[name="batchLocStrategy"]:checked')?.value || "smart";
 
     // 多線程並行隊列（兼顧速度與官方防爬蟲限制，提速 3~4 倍）
     const CONCURRENCY = 3;
