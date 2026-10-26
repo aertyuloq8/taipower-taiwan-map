@@ -377,7 +377,6 @@
 
           <!-- 傳送到手機與雲端備份工具列 -->
           <div class="v2-batch-cloud-bar">
-            <button id="batchShareQrBtn" class="v2-batch-btn-phone" type="button" title="產生手機相機掃描 QR Code">📱 傳到手機 (QR Code)</button>
             <button id="batchDriveUploadBtn" class="v2-batch-btn-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳 Drive</button>
             <button id="batchDriveRestoreBtn" class="v2-batch-btn-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 從 Drive 還原</button>
             <button id="batchToBookmarksBtn" class="v2-batch-btn-star" type="button" title="轉存為門牌收藏">⭐ 存入門牌收藏</button>
@@ -729,22 +728,6 @@
       <div id="defectEditStatus" style="font-size:11px; color:#64748b; min-height:14px; padding:0 10px 8px; flex-shrink:0;"></div>
     </section>
 
-    <!-- 📱 傳送批次電表到手機 QR Code 彈窗 -->
-    <div id="v2BatchQrModal" class="v2-batch-qr-backdrop" hidden>
-      <div class="v2-batch-qr-modal" role="dialog" aria-modal="true" aria-label="傳送到手機">
-        <div class="v2-batch-qr-head">
-          <span class="v2-batch-qr-title">📱 掃描傳送到手機</span>
-          <button id="v2BatchQrClose" class="v2-batch-qr-close" type="button" aria-label="關閉">×</button>
-        </div>
-        <div class="v2-batch-qr-desc">
-          請用<strong>手機相機</strong>直接對準螢幕掃描 QR Code，即可秒級在手機地圖上開啟這批電表，立即開始導航！
-        </div>
-        <div id="v2BatchQrBox" class="v2-batch-qr-box"></div>
-        <div class="v2-batch-qr-input-wrap">
-          <input id="v2BatchQrUrl" class="v2-batch-qr-input" type="text" readonly />
-          <button id="v2BatchQrCopyBtn" class="v2-batch-btn-secondary" type="button" style="flex-shrink:0;">📋 複製</button>
-        </div>
-      </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 

@@ -298,15 +298,11 @@
     clearAllBtn: null,
     toggleBgLabelsBtn: null,
     toggleLabelsBtn: null,
-    shareQrBtn: null,
     driveUploadBtn: null,
     driveRestoreBtn: null,
     toBookmarksBtn: null,
-    qrModal: null,
-    qrClose: null,
-    qrBox: null,
-    qrUrl: null,
-    qrCopyBtn: null,
+    clearInputBtn: null,
+    clearInputBtnTop: null,
   };
 
   function initControls() {
@@ -335,16 +331,9 @@
 
     controls.toggleBgLabelsBtn = document.getElementById("batchToggleBgLabelsBtn");
     controls.toggleLabelsBtn = document.getElementById("batchToggleLabelsBtn");
-    controls.shareQrBtn = document.getElementById("batchShareQrBtn");
     controls.driveUploadBtn = document.getElementById("batchDriveUploadBtn");
     controls.driveRestoreBtn = document.getElementById("batchDriveRestoreBtn");
     controls.toBookmarksBtn = document.getElementById("batchToBookmarksBtn");
-
-    controls.qrModal = document.getElementById("v2BatchQrModal");
-    controls.qrClose = document.getElementById("v2BatchQrClose");
-    controls.qrBox = document.getElementById("v2BatchQrBox");
-    controls.qrUrl = document.getElementById("v2BatchQrUrl");
-    controls.qrCopyBtn = document.getElementById("v2BatchQrCopyBtn");
   }
 
   // 關閉其他浮動面板
@@ -736,158 +725,6 @@
     }
   }
 
-  // --- 批次資料的高效 URL 壓縮傳送編碼（支援手機掃碼秒傳）---
-  async function compressBatch(records) {
-    const compact = records.map(r => [
-      r.custNo || "",
-      r.addr || "",
-      r.pole || "",
-      r.code || "",
-      r.meterNo || "",
-      r.inspectTerm || "",
-      Number(r.lat.toFixed(6)),
-      Number(r.lng.toFixed(6)),
-      r.locType === "doorplate" ? 1 : 2
-    ]);
-    const json = JSON.stringify(compact);
-    if (typeof CompressionStream !== "undefined") {
-      try {
-        const stream = new Blob([new TextEncoder().encode(json)]).stream();
-        const compressedStream = stream.pipeThrough(new CompressionStream("deflate-raw"));
-        const buffer = await new Response(compressedStream).arrayBuffer();
-        let binary = "";
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        return "z_" + btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-      } catch (e) {}
-    }
-    return encodeURIComponent(json);
-  }
-
-  async function decompressBatch(rawStr) {
-    if (rawStr.startsWith("z_")) {
-      const b64 = rawStr.slice(2);
-      let base64 = b64.replace(/-/g, "+").replace(/_/g, "/");
-      while (base64.length % 4) base64 += "=";
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const stream = new Blob([bytes]).stream();
-      const decompressedStream = stream.pipeThrough(new DecompressionStream("deflate-raw"));
-      const text = await new Response(decompressedStream).text();
-      const data = JSON.parse(text);
-      return data.map(item => ({
-        custNo: item[0],
-        addr: item[1],
-        pole: item[2],
-        code: item[3],
-        meterNo: item[4],
-        inspectTerm: item[5],
-        lat: Number(item[6]),
-        lng: Number(item[7]),
-        locType: item[8] === 1 ? "doorplate" : "grid",
-        locLabel: item[8] === 1 ? "🏠 電子門牌精準定位（用戶住家）" : "⚡ 圖號座標定位（地號農電桿）"
-      }));
-    } else {
-      const decoded = decodeURIComponent(rawStr);
-      const data = JSON.parse(decoded);
-      return data.map(item => ({
-        custNo: item[0],
-        addr: item[1],
-        pole: item[2],
-        code: item[3],
-        meterNo: item[4],
-        inspectTerm: item[5],
-        lat: Number(item[6]),
-        lng: Number(item[7]),
-        locType: item[8] === 1 || item[8] === "doorplate" ? "doorplate" : "grid",
-        locLabel: item[8] === 1 || item[8] === "doorplate" ? "🏠 電子門牌精準定位（用戶住家）" : "⚡ 圖號座標定位（地號農電桿）"
-      }));
-    }
-  }
-
-  // --- 手機掃描 QR Code 傳送 ---
-  async function openQrModal() {
-    if (!state.records.length) {
-      showToast("目前沒有標記資料可傳送！請先貼上清單並解析", "dup");
-      return;
-    }
-    const encoded = await compressBatch(state.records);
-    const url = `${location.origin}${location.pathname}#batch=${encoded}`;
-
-    if (controls.qrUrl) controls.qrUrl.value = url;
-    if (controls.qrBox) {
-      controls.qrBox.innerHTML = "";
-      if (window.QRCode) {
-        try {
-          new QRCode(controls.qrBox, {
-            text: url,
-            width: 200,
-            height: 200,
-            correctLevel: QRCode.CorrectLevel.L
-          });
-        } catch (e) {
-          controls.qrBox.innerHTML = `<div style="font-size:12px;color:#d97706;padding:12px;">資料筆數較多，請直接點擊下方「複製」連結傳送，或使用「☁️ 上傳 Drive」同步</div>`;
-        }
-      } else {
-        controls.qrBox.innerHTML = `<a href="${url}" target="_blank" style="word-break:break-all;font-size:12px;">${url}</a>`;
-      }
-    }
-    if (controls.qrModal) {
-      controls.qrModal.hidden = false;
-    }
-  }
-
-  function closeQrModal() {
-    if (controls.qrModal) controls.qrModal.hidden = true;
-    if (controls.qrBox) controls.qrBox.innerHTML = "";
-  }
-
-  function copyQrUrl() {
-    if (!controls.qrUrl) return;
-    controls.qrUrl.select();
-    navigator.clipboard?.writeText(controls.qrUrl.value).then(() => {
-      showToast("📋 網址已複製到剪貼簿！可貼至 LINE 傳送給手機");
-    }).catch(() => {
-      document.execCommand("copy");
-      showToast("📋 網址已複製！");
-    });
-  }
-
-  // 手機網址 Hash 接收器（手機掃描 QR Code 後自動加載）
-  async function checkUrlHashBatch() {
-    if (!location.hash || !location.hash.startsWith("#batch=")) return;
-    try {
-      const hashData = location.hash.slice(7);
-      const records = await decompressBatch(hashData);
-      if (Array.isArray(records) && records.length > 0) {
-        state.records = records.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
-        try { localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records)); } catch {}
-
-        hideBackgroundPoleLabels();
-        renderBatchMarkers();
-        renderBatchList();
-        updateSummaryBadges();
-
-        setPanelOpen(true);
-        switchTab("list");
-
-        setTimeout(() => {
-          const map = getMap();
-          if (map && state.layerGroup) {
-            const bounds = state.layerGroup.getBounds();
-            if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
-          }
-        }, 600);
-
-        showToast(`🎉 手機已載入 ${state.records.length} 筆電表！已為您自動隱藏背景電桿標籤`);
-        history.replaceState(null, "", location.pathname + location.search);
-      }
-    } catch (e) {
-      console.warn("無法從網址 Hash 解析批次電表：", e);
-    }
-  }
-
   // --- Google Drive 備份與還原 ---
   function uploadBatchToDrive() {
     if (!state.records.length) {
@@ -1033,14 +870,7 @@
     controls.toggleBgLabelsBtn?.addEventListener("click", toggleBackgroundPoleLabels);
     controls.toggleLabelsBtn?.addEventListener("click", () => toggleBatchLabels());
 
-    // 跨裝置傳送與雲端備份
-    controls.shareQrBtn?.addEventListener("click", openQrModal);
-    controls.qrClose?.addEventListener("click", closeQrModal);
-    controls.qrCopyBtn?.addEventListener("click", copyQrUrl);
-    controls.qrModal?.addEventListener("click", (e) => {
-      if (e.target === controls.qrModal) closeQrModal();
-    });
-
+    // 雲端備份與門牌收藏
     controls.driveUploadBtn?.addEventListener("click", uploadBatchToDrive);
     controls.driveRestoreBtn?.addEventListener("click", restoreBatchFromDrive);
     controls.toBookmarksBtn?.addEventListener("click", saveToAddressBookmarks);
@@ -1107,7 +937,6 @@
     initControls();
     bindEvents();
     restoreLocalCachedBatch();
-    checkUrlHashBatch();
 
     const map = getMap();
     if (!map && attempt < 40) {
