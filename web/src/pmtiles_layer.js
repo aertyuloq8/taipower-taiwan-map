@@ -133,6 +133,20 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
 
   // 建立自訂 Leaflet GridLayer
   const PMTilesGridLayer = L.GridLayer.extend({
+    initialize(layerOptions) {
+      L.GridLayer.prototype.initialize.call(this, layerOptions);
+      this._isHidden = false;
+    },
+
+    onAdd(map) {
+      L.GridLayer.prototype.onAdd.call(this, map);
+      const isHidden = this._isHidden || (options.isLabelsHidden ? options.isLabelsHidden() : false);
+      const container = this.getContainer();
+      if (container && isHidden) {
+        container.style.display = "none";
+      }
+    },
+
     createTile(coords, done) {
       const tile = document.createElement("canvas");
       const size = this.getTileSize();
@@ -144,13 +158,18 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
       const ctx = tile.getContext("2d");
       const z = coords.z;
 
-      if (z < 10) {
+      const isHidden = this._isHidden || (options.isLabelsHidden ? options.isLabelsHidden() : false);
+      if (z < 10 || isHidden) {
         setTimeout(() => done(null, tile), 0);
         return tile;
       }
 
       (async () => {
         try {
+          if (this._isHidden || (options.isLabelsHidden && options.isLabelsHidden())) {
+            done(null, tile);
+            return;
+          }
           if (z <= 13) {
             const features = await getTileFeatures(z, coords.x, coords.y);
             this.renderTileDots(ctx, features, z, 0, 0, 4096, size.x);
@@ -191,6 +210,7 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
      */
     renderTileDots(ctx, features, zoom, subMinX, subMinY, subSize, tileSize) {
       if (!features || features.length === 0) return;
+      if (this._isHidden || (options.isLabelsHidden && options.isLabelsHidden())) return;
 
       const scale = tileSize / subSize;
       const selectedId = options.getSelectedId ? options.getSelectedId() : null;
@@ -265,6 +285,15 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
     updateWhenIdle: false,
     updateWhenZooming: false
   });
+
+  layer.setHidden = function(hidden) {
+    this._isHidden = !!hidden;
+    const container = this.getContainer();
+    if (container) {
+      container.style.display = this._isHidden ? "none" : "";
+    }
+    this.redraw();
+  };
 
   /**
    * 根據視窗邊界，從 PMTiles 快取中提取視野內的所有電桿完整資訊

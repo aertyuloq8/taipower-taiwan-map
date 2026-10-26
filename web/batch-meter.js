@@ -437,7 +437,7 @@
       btn.click();
       const isHidden = btn.classList.contains("is-hidden");
       updateBgLabelsBtnUI(isHidden);
-      showToast(isHidden ? "🚫 已為您隱藏背景電桿標籤" : "👁️ 已還原背景電桿標籤");
+      showToast(isHidden ? "🚫 已為您隱藏背景電桿與點位" : "👁️ 已還原背景電桿與點位");
     }
   }
 
@@ -1049,6 +1049,14 @@
     controls.toBookmarksBtn?.addEventListener("click", saveToAddressBookmarks);
 
     syncBgLabelsBtnWithMap();
+
+    // 監聽標籤/點位圖層切換事件，實現與圖層控制選單雙向即時連動
+    window.addEventListener("poleLabelsToggled", (e) => {
+      const isHidden = e && e.detail && typeof e.detail.hidden === "boolean"
+        ? e.detail.hidden
+        : (document.getElementById("toggleLabelsBtn")?.classList.contains("is-hidden") || false);
+      updateBgLabelsBtnUI(isHidden);
+    });
 
     // 監聽 Drive 還原事件
     window.addEventListener("batchMetersRestored", () => {

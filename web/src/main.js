@@ -7113,6 +7113,47 @@ window.__appBooted = true;
         }
         if (routeCount === 0) setStatus("目前視窗沒有足夠點位可形成路線");
       }
+      function syncPoleVisibility() {
+        const isHidden = !!state.labelsHidden;
+        const labelsBtn = document.getElementById("toggleLabelsBtn");
+        if (labelsBtn) {
+          labelsBtn.classList.toggle("is-hidden", isHidden);
+          labelsBtn.classList.toggle("is-active", !isHidden);
+          labelsBtn.setAttribute("aria-pressed", String(!isHidden));
+        }
+        const labelsState = document.getElementById("labelsLayerState");
+        if (labelsState) {
+          labelsState.textContent = isHidden ? "隱藏" : "顯示";
+        }
+
+        if (state.usePMTiles && window.__pmtilesLayer) {
+          if (typeof window.__pmtilesLayer.setHidden === "function") {
+            window.__pmtilesLayer.setHidden(isHidden);
+          }
+          if (isHidden) {
+            if (labelsLayer) labelsLayer.clearLayers();
+          } else {
+            if (map.getZoom() >= 14 && state.visiblePoints.length > 0) {
+              updateLabels();
+            } else {
+              scheduleSyncPMTiles(50);
+            }
+          }
+          updateStats();
+        } else {
+          if (renderer && typeof renderer.redraw === "function") {
+            renderer.redraw();
+          }
+        }
+
+        updateRecordMarkers();
+        syncLayerMenuState();
+        syncMobileMapControls();
+
+        // 觸發自訂事件通知批次標記等其他面板雙向連動
+        window.dispatchEvent(new CustomEvent("poleLabelsToggled", { detail: { hidden: isHidden } }));
+      }
+
       function disableRouteLayerForTools() {
         if (!state.routeLayerVisible) return false;
         state.routeLayerVisible = false;
@@ -7124,16 +7165,7 @@ window.__appBooted = true;
           routeBtn.setAttribute("aria-pressed", "false");
         }
         state.labelsHidden = false;
-        const labelsBtn = document.getElementById("toggleLabelsBtn");
-        if (labelsBtn) labelsBtn.classList.remove("is-hidden");
-        syncMobileMapControls();
-        syncLayerMenuState();
-        if (state.usePMTiles) {
-          scheduleSyncPMTiles(50);
-        } else {
-          renderer.redraw();
-        }
-        updateRecordMarkers();
+        syncPoleVisibility();
         return true;
       }
 
@@ -7562,28 +7594,7 @@ window.__appBooted = true;
 
       document.getElementById("toggleLabelsBtn").addEventListener("click", (e) => {
         state.labelsHidden = !state.labelsHidden;
-        e.currentTarget.classList.toggle("is-hidden", state.labelsHidden);
-        syncMobileMapControls();
-        syncLayerMenuState();
-        if (state.usePMTiles) {
-          if (state.labelsHidden) {
-            labelsLayer.clearLayers();
-          } else {
-            if (map.getZoom() >= 14 && state.visiblePoints.length > 0) {
-              updateLabels();
-            } else {
-              scheduleSyncPMTiles(50);
-            }
-          }
-          updateStats();
-        } else {
-          if (state.usePMTiles) {
-          scheduleSyncPMTiles(50);
-        } else {
-          renderer.redraw();
-        }
-        }
-        updateRecordMarkers();
+        syncPoleVisibility();
         try { e.currentTarget.blur(); } catch (err) {}
       });
       document.getElementById("routeLayerToggle").addEventListener("click", (e) => {
@@ -7592,31 +7603,17 @@ window.__appBooted = true;
           closeMapSearchPanel();
           collapsePanelControl();
           state.labelsHidden = true;
-          document.getElementById("toggleLabelsBtn").classList.add("is-hidden");
-          syncMobileMapControls();
-          if (state.usePMTiles) {
-            labelsLayer.clearLayers();
-            scheduleSyncPMTiles(50);
-          } else {
-            if (state.usePMTiles) {
+          syncPoleVisibility();
           scheduleSyncPMTiles(50);
         } else {
-          renderer.redraw();
-        }
-          }
-        } else {
           state.labelsHidden = false;
-          const labelsBtn = document.getElementById("toggleLabelsBtn");
-          if (labelsBtn) labelsBtn.classList.remove("is-hidden");
-          syncMobileMapControls();
           if (state.usePMTiles) {
             routeLayer.clearLayers();
-            scheduleSyncPMTiles(50);
           } else {
             updateRouteLayer();
           }
+          syncPoleVisibility();
         }
-        syncLayerMenuState();
         if (state.routeLayerVisible) setStatus("已顯示設備開頭推估路線");
         window.setTimeout(() => setStatus(""), 1800);
         try { e.currentTarget.blur(); } catch (err) {}
@@ -8340,6 +8337,7 @@ function renderDefectStats() {
 
       map.on("click", async (e) => {
         disableRouteLayerForTools();
+        if (state.labelsHidden) return; // 標籤與點位隱藏時不觸發背景電桿反查
         if (state.usePMTiles && window.__pmtilesLayer) {
           const best = await window.__pmtilesLayer.findPoleAtLatLng(map, e.latlng);
           if (best) {
