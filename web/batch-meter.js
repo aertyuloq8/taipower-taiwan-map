@@ -1280,10 +1280,10 @@
         <div style="color:#334155;font-size:11px;line-height:1.4;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
         ${chips.length > 0 ? `<div class="v2-batch-chips-row" style="margin-top:3px;">${chips.join("")}</div>` : ""}
         ${popupCollapseHtml}
-        <!-- 每戶卡片底部專屬操作：門牌導航與優雅移除按鈕 -->
+        <!-- 每戶卡片底部專屬操作：導航與優雅移除按鈕 -->
         <div class="batch-popup-item-actions">
           <a class="batch-popup-act-btn is-nav" href="${googleAddrNavUrl(r.addr, r.lat, r.lng)}" target="_blank" rel="noopener" title="以 Google Maps 導航至此用戶用電地址">
-            🗺️ 導航至地址
+            🗺️ 導航
           </a>
           <button type="button" class="batch-popup-act-btn is-del batch-remove-single-btn" data-remove-idx="${idx}" title="從清單與地圖中移除此電表">
             🗑️ 移除此點
@@ -1417,7 +1417,7 @@
         const globalNavUrl = hasDoorplate
           ? googleAddrNavUrl(group[0].r.addr, lat, lng)
           : googleNavUrl(lat, lng);
-        const globalNavText = hasDoorplate ? "🏠 導航至此門牌地址" : "⚡ 導航至現場變壓器/桿位";
+        const globalNavText = "🗺️ 導航";
 
         popupHtml = `
           <div class="batch-popup-card" style="min-width:260px;max-width:320px;line-height:1.5;font-size:12px;">
