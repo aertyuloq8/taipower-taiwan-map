@@ -790,26 +790,35 @@
       r.filteredOut = !isVis;
       if (isVis) visibleCount++;
 
-      // 1. 地圖 Marker 聯動
-      if (r.marker && state.layerGroup) {
-        if (isVis && state.showLabels) {
-          if (!state.layerGroup.hasLayer(r.marker)) {
-            state.layerGroup.addLayer(r.marker);
-          }
-          if (r.marker.getTooltip()) r.marker.openTooltip();
-        } else {
-          if (state.layerGroup.hasLayer(r.marker)) {
-            state.layerGroup.removeLayer(r.marker);
-          }
-        }
-      }
-
-      // 2. 清單卡片聯動
+      // 1. 清單卡片聯動
       const card = controls.list?.querySelector(`.v2-batch-item[data-meter-idx="${idx}"]`);
       if (card) {
         card.style.display = isVis ? "" : "none";
       }
     });
+
+    // 2. 地圖 Marker 聯動 (依座標群組判斷：只要群組內有任一筆可見即保留 Marker)
+    if (state.layerGroup) {
+      const markers = new Set();
+      state.records.forEach(r => {
+        if (r.marker) markers.add(r.marker);
+      });
+
+      markers.forEach(marker => {
+        const group = marker._batchClusterGroup;
+        const hasVisible = group ? group.some(item => !item.r.filteredOut) : true;
+        if (hasVisible && state.showLabels) {
+          if (!state.layerGroup.hasLayer(marker)) {
+            state.layerGroup.addLayer(marker);
+          }
+          if (marker.getTooltip()) marker.openTooltip();
+        } else {
+          if (state.layerGroup.hasLayer(marker)) {
+            state.layerGroup.removeLayer(marker);
+          }
+        }
+      });
+    }
 
     updateFilterStatusUI(visibleCount);
   }
@@ -1217,6 +1226,74 @@
     if (controls.tabCountBadge) controls.tabCountBadge.textContent = state.records.length;
   }
 
+  // 建立單一電表的詳細資訊卡 HTML（供單戶 Popup 或多戶共用變壓器 Popup 嵌入）
+  function buildSingleMeterDetailHtml(r, idx, showNavAndRemove = true) {
+    const formattedCustNo = formatCustNo(r.custNo);
+    const typeBadge = r.locType === "doorplate"
+      ? `<span style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;">🏠 門牌</span>`
+      : `<span style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;">⚡ 圖號</span>`;
+
+    const customFields = getAllCustomFields(r);
+    const chips = [];
+    if (r.extra?.["型式"]) chips.push(`<span class="v2-batch-chip is-type">型式: ${escapeHtml(r.extra["型式"])}</span>`);
+    if (r.extra?.["契約"]) chips.push(`<span class="v2-batch-chip is-contract">契約: ${escapeHtml(r.extra["契約"])}</span>`);
+    if (r.extra?.["相別"]) chips.push(`<span class="v2-batch-chip is-phase">相別: ${escapeHtml(r.extra["相別"])}</span>`);
+    if (r.meterNo) chips.push(`<span class="v2-batch-chip">表號: ${escapeHtml(r.meterNo)}</span>`);
+    if (r.inspectTerm) chips.push(`<span class="v2-batch-chip">檢定: ${escapeHtml(r.inspectTerm)}</span>`);
+    if (chips.length === 0 && customFields.length > 0) {
+      customFields.slice(0, 2).forEach(f => {
+        chips.push(`<span class="v2-batch-chip">${escapeHtml(f.key)}: ${escapeHtml(f.val)}</span>`);
+      });
+    }
+
+    const popupCollapseHtml = customFields.length > 0 ? `
+      <details class="batch-popup-collapse" style="margin-top:4px;">
+        <summary>
+          <span>📋 完整資料 (${customFields.length} 欄位)</span>
+          <span style="font-size:9px;color:#94a3b8;">▼</span>
+        </summary>
+        <div class="batch-popup-details-body">
+          ${customFields.map(f => `
+            <div class="batch-popup-row">
+              <span class="batch-popup-key">${escapeHtml(f.key)}:</span>
+              <span class="batch-popup-val">${escapeHtml(f.val)}</span>
+            </div>
+          `).join("")}
+        </div>
+      </details>
+    ` : "";
+
+    return `
+      <div class="batch-popup-meter-item" data-popup-meter-idx="${idx}">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin-bottom:4px;">
+          <strong style="color:#0f766e;font-size:12px;">#${idx + 1} 電號 ${escapeHtml(formattedCustNo || "--")}</strong>
+          <div style="display:flex;align-items:center;gap:4px;">
+            ${typeBadge}
+            ${!showNavAndRemove ? `
+              <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" title="移除此電表" style="background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;border-radius:4px;cursor:pointer;font-size:10px;padding:1px 5px;line-height:1.2;">✕</button>
+            ` : ""}
+          </div>
+        </div>
+        <div style="color:#334155;font-size:11px;line-height:1.4;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
+        ${chips.length > 0 ? `<div class="v2-batch-chips-row" style="margin-top:3px;">${chips.join("")}</div>` : ""}
+        ${popupCollapseHtml}
+        ${showNavAndRemove ? `
+          <div style="font-size:11px;color:#047857;margin-top:5px;padding:2px 5px;background:#f0fdf4;border-radius:4px;">
+            ↳ ${escapeHtml(r.locLabel)}
+          </div>
+          <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
+            <a class="popup-navigation-link" href="${googleNavUrl(r.lat, r.lng)}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
+              🗺️ 導航
+            </a>
+            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="flex:1;background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;min-height:28px;padding:4px 8px;">
+              ✕ 移除本點
+            </button>
+          </div>
+        ` : ""}
+      </div>
+    `;
+  }
+
   // 繪製地圖標記點與醒目文字標籤
   function renderBatchMarkers() {
     const map = getMap();
@@ -1236,31 +1313,79 @@
       }
     }
 
+    // 依座標聚類分組（同變壓器/同掛表桿位判斷）
+    const coordMap = new Map();
     state.records.forEach((r, idx) => {
+      r._displayIndex = idx + 1;
       if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return;
+      // 取小數點後 6 位 (約 0.1 公尺精度內視為同一現場掛表點/同變壓器)
+      const key = `${r.lat.toFixed(6)},${r.lng.toFixed(6)}`;
+      if (!coordMap.has(key)) coordMap.set(key, []);
+      coordMap.get(key).push({ r, idx });
+    });
 
-      const badgeClass = r.locType === "doorplate" ? "is-doorplate" : r.locType === "fallback" ? "is-fallback" : "is-grid";
+    coordMap.forEach((group, coordKey) => {
+      const isCluster = group.length > 1;
+      const primaryRec = group[0].r;
+      const primaryIdx = group[0].idx;
+      const lat = primaryRec.lat;
+      const lng = primaryRec.lng;
+
+      // 徽章樣式 (若群組內有任一門牌定位優先顯綠)
+      const hasDoorplate = group.some(item => item.r.locType === "doorplate");
+      const badgeClass = hasDoorplate ? "is-doorplate" : (primaryRec.locType === "fallback" ? "is-fallback" : "is-grid");
+
+      // 1. Marker DivIcon 圖標
+      const pinMainText = `${primaryRec._displayIndex}`;
+      const pinBadge = isCluster ? `<span class="batch-marker-pin-badge">+${group.length - 1}</span>` : "";
+      const clusterTitle = isCluster
+        ? `⚡ 共用變壓器/桿位: 共 ${group.length} 只電表 (#${group.map(g => g.r._displayIndex).join(",")})`
+        : `#${primaryRec._displayIndex} ${escapeHtml(primaryRec.addr || primaryRec.code)}`;
+
       const icon = L.divIcon({
         className: "batch-marker-divicon",
-        html: `<div class="batch-marker-pin ${badgeClass}" title="#${idx + 1} ${escapeHtml(r.addr || r.code)}">${idx + 1}</div>`,
+        html: `<div class="batch-marker-pin ${badgeClass} ${isCluster ? 'is-cluster' : ''}" title="${clusterTitle}">
+                 <span class="batch-marker-pin-main">${pinMainText}</span>
+                 ${pinBadge}
+               </div>`,
         iconSize: [26, 26],
         iconAnchor: [13, 13],
         popupAnchor: [0, -14]
       });
 
-      const marker = L.marker([r.lat, r.lng], { icon });
+      const marker = L.marker([lat, lng], { icon });
+      marker._batchClusterGroup = group; // 保存群組引用
 
-      // 依格式化規則顯示電號（原始資料 r.custNo 不變）
-      const formattedCustNo = formatCustNo(r.custNo);
+      // 2. 地圖醒目標籤 Tooltip (同座標整合顯示，徹底避免疊在一起)
+      let labelHtml = "";
+      if (!isCluster) {
+        const formattedCustNo = formatCustNo(primaryRec.custNo);
+        labelHtml = `
+          <div class="batch-map-label ${badgeClass}">
+            <span class="batch-label-index">#${primaryRec._displayIndex}</span>
+            <span class="batch-label-text">${escapeHtml(primaryRec.addr || primaryRec.code || formattedCustNo)}</span>
+            ${primaryRec.pole ? `<span class="batch-label-pole">(${escapeHtml(primaryRec.pole)})</span>` : ""}
+          </div>
+        `;
+      } else {
+        const indicesStr = group.map(g => `#${g.r._displayIndex}`).join(",");
+        const firstAddr = group[0].r.addr || group[0].r.code;
+        const allSameAddr = group.every(g => (g.r.addr || g.r.code) === firstAddr);
+        const displayAddrText = allSameAddr ? `${firstAddr}` : `${firstAddr} 等 ${group.length} 戶`;
+        const poleName = group.find(g => g.r.pole)?.r.pole || primaryRec.code || "";
 
-      // 地圖上的永久醒目標籤 (Batch Map Label Tooltip)
-      const labelHtml = `
-        <div class="batch-map-label ${badgeClass}">
-          <span class="batch-label-index">#${idx + 1}</span>
-          <span class="batch-label-text">${escapeHtml(r.addr || r.code || formattedCustNo)}</span>
-          ${r.pole ? `<span class="batch-label-pole">(${escapeHtml(r.pole)})</span>` : ""}
-        </div>
-      `;
+        labelHtml = `
+          <div class="batch-map-label ${badgeClass} is-cluster-label">
+            <div class="batch-map-label-header">
+              <span class="batch-label-index">${indicesStr}</span>
+              <span class="batch-label-multi-badge">⚡ 共用變壓器 (${group.length}表)</span>
+            </div>
+            <div class="batch-label-text">${escapeHtml(displayAddrText)}</div>
+            ${poleName ? `<span class="batch-label-pole">(${escapeHtml(poleName)})</span>` : ""}
+          </div>
+        `;
+      }
+
       marker.bindTooltip(labelHtml, {
         permanent: state.showLabels !== false,
         direction: "top",
@@ -1268,75 +1393,53 @@
         className: "batch-meter-map-tooltip"
       });
 
-      // 點擊彈出詳細資訊卡
-      const typeBadge = r.locType === "doorplate"
-        ? `<span style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:700;">🏠 門牌定位</span>`
-        : `<span style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:700;">⚡ 圖號定位</span>`;
+      // 3. Popup 彈窗詳細卡片
+      let popupHtml = "";
+      const navUrl = googleNavUrl(lat, lng);
 
-      const navUrl = googleNavUrl(r.lat, r.lng);
-
-      const customFields = getAllCustomFields(r);
-
-      // 重點規格標籤 Chips (型式、契約、相別、表號、檢定)
-      const chips = [];
-      if (r.extra?.["型式"]) chips.push(`<span class="v2-batch-chip is-type">型式: ${escapeHtml(r.extra["型式"])}</span>`);
-      if (r.extra?.["契約"]) chips.push(`<span class="v2-batch-chip is-contract">契約: ${escapeHtml(r.extra["契約"])}</span>`);
-      if (r.extra?.["相別"]) chips.push(`<span class="v2-batch-chip is-phase">相別: ${escapeHtml(r.extra["相別"])}</span>`);
-      if (r.meterNo) chips.push(`<span class="v2-batch-chip">表號: ${escapeHtml(r.meterNo)}</span>`);
-      if (r.inspectTerm) chips.push(`<span class="v2-batch-chip">檢定: ${escapeHtml(r.inspectTerm)}</span>`);
-      // 若無上述台電常見規格但有其他自訂欄位，動態取前 2 項作為標籤
-      if (chips.length === 0 && customFields.length > 0) {
-        customFields.slice(0, 2).forEach(f => {
-          chips.push(`<span class="v2-batch-chip">${escapeHtml(f.key)}: ${escapeHtml(f.val)}</span>`);
-        });
-      }
-
-      // 完整資料摺疊收合區 (當有額外資料或欄位較多時可展開/收合)
-      const popupCollapseHtml = customFields.length > 0 ? `
-        <details class="batch-popup-collapse">
-          <summary>
-            <span>📋 完整資料 (${customFields.length} 欄位)</span>
-            <span style="font-size:9px;color:#94a3b8;">▼</span>
-          </summary>
-          <div class="batch-popup-details-body">
-            ${customFields.map(f => `
-              <div class="batch-popup-row">
-                <span class="batch-popup-key">${escapeHtml(f.key)}:</span>
-                <span class="batch-popup-val">${escapeHtml(f.val)}</span>
+      if (!isCluster) {
+        popupHtml = `
+          <div class="batch-popup-card" style="min-width:240px;line-height:1.5;font-size:12px;">
+            <div style="color:#334155;margin-bottom:5px;font-size:11px;">
+              ⚡ <strong>設備：</strong>${escapeHtml(primaryRec.pole || "--")} · 🗺️ <strong>圖號：</strong><code style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(primaryRec.code || "--")}</code>
+            </div>
+            ${buildSingleMeterDetailHtml(primaryRec, primaryIdx, true)}
+          </div>
+        `;
+      } else {
+        // 多戶共用同座標/同變壓器：頂部標明共用桿位，下方滾動清單呈現各戶
+        popupHtml = `
+          <div class="batch-popup-card" style="min-width:260px;max-width:320px;line-height:1.5;font-size:12px;">
+            <div class="batch-popup-cluster-head">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <strong style="color:#0f766e;font-size:13px;">⚡ 變壓器/桿位共用點位</strong>
+                <span class="batch-popup-cluster-count">共 ${group.length} 只電表</span>
               </div>
-            `).join("")}
+              <div style="color:#475569;font-size:11px;margin-top:3px;">
+                ⚡ <strong>設備：</strong>${escapeHtml(primaryRec.pole || "--")} · 🗺️ <strong>圖號：</strong><code style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(primaryRec.code || "--")}</code>
+              </div>
+            </div>
+            <div style="max-height:240px;overflow-y:auto;padding-right:2px;display:flex;flex-direction:column;gap:6px;">
+              ${group.map(item => buildSingleMeterDetailHtml(item.r, item.idx, false)).join("")}
+            </div>
+            <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
+              <a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
+                🗺️ 導航至此變壓器
+              </a>
+            </div>
           </div>
-        </details>
-      ` : "";
-
-      const popupHtml = `
-        <div class="batch-popup-card" style="min-width:240px;line-height:1.5;font-size:12px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:4px;margin-bottom:6px;">
-            <strong style="color:#0f766e;font-size:13px;">#${idx + 1} 電號 ${escapeHtml(formattedCustNo || "--")}</strong>
-            ${typeBadge}
-          </div>
-          <div style="color:#334155;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
-          <div style="color:#334155;">⚡ <strong>設備：</strong>${escapeHtml(r.pole || "--")}</div>
-          <div style="color:#334155;">🗺️ <strong>圖號：</strong><span style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(r.code || "--")}</span></div>
-          ${chips.length > 0 ? `<div class="v2-batch-chips-row" style="margin-top:4px;">${chips.join("")}</div>` : ""}
-          ${popupCollapseHtml}
-          <div style="font-size:11px;color:#047857;margin-top:6px;padding:3px 6px;background:#f0fdf4;border-radius:4px;">
-            ↳ ${escapeHtml(r.locLabel)}
-          </div>
-          <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
-            <a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
-              🗺️ 導航
-            </a>
-            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="flex:1;background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;min-height:28px;padding:4px 8px;">
-              ✕ 移除本點
-            </button>
-          </div>
-        </div>
-      `;
+        `;
+      }
 
       marker.bindPopup(popupHtml, { maxWidth: 320, maxHeight: 420, className: "batch-meter-popup" });
       state.layerGroup.addLayer(marker);
-      r.marker = marker;
+
+      // 為群組內每筆紀錄關聯此 Marker 與叢集資訊
+      group.forEach(item => {
+        item.r.marker = marker;
+        item.r._clusterSize = group.length;
+        item.r._clusterKey = coordKey;
+      });
     });
 
     if (state.showLabels) {
@@ -1401,11 +1504,18 @@
         </details>
       ` : "";
 
+      const sharedBadge = (r._clusterSize && r._clusterSize > 1)
+        ? `<span class="v2-batch-badge-shared" title="與其他 ${r._clusterSize - 1} 戶共用同一變壓器/桿位座標">⚡ 同變壓器 (${r._clusterSize}戶)</span>`
+        : "";
+
       return `
         <div class="v2-batch-item" data-meter-idx="${idx}" ${r.filteredOut ? 'style="display:none;"' : ""}>
           <div class="v2-batch-item-title">
             <span>#${idx + 1} ${escapeHtml(r.addr || r.code || formattedCustNo)}</span>
-            ${typeBadge}
+            <div style="display:flex;gap:4px;align-items:center;">
+              ${sharedBadge}
+              ${typeBadge}
+            </div>
           </div>
           <div class="v2-batch-item-meta">
             <span>電號: <strong>${escapeHtml(formattedCustNo || "--")}</strong></span> · 
@@ -1432,7 +1542,18 @@
           }
           map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 17), { duration: 0.8 });
           if (r.marker) {
-            setTimeout(() => r.marker.openPopup(), 400);
+            setTimeout(() => {
+              r.marker.openPopup();
+              // 若為同變壓器多電表，自動將彈窗內對應電表捲入視野並短暫高亮
+              setTimeout(() => {
+                const targetEl = document.querySelector(`.batch-popup-meter-item[data-popup-meter-idx="${idx}"]`);
+                if (targetEl) {
+                  targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  targetEl.style.boxShadow = "0 0 0 2px #0f766e";
+                  setTimeout(() => { targetEl.style.boxShadow = ""; }, 1800);
+                }
+              }, 120);
+            }, 400);
           }
         }
       });

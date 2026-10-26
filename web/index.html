@@ -375,22 +375,12 @@
             <span class="v2-batch-badge-item is-blue">⚡ 圖號 <strong id="batchGridCount">0</strong> 筆</span>
           </div>
 
-          <!-- 三合一行：[設備標籤] [地址標籤] [條件篩選] (平分整行，極致省空間) -->
-          <div class="v2-batch-trio-row">
-            <button id="batchToggleBgLabelsBtn" class="v2-batch-trio-btn is-active" type="button" title="點擊切換底圖設備標籤與桿名點位">👁️ 設備標籤</button>
-            <button id="batchToggleLabelsBtn" class="v2-batch-trio-btn is-active" type="button" title="點擊切換批次地址標籤與定位標記">🏷️ 地址標籤</button>
-            <button id="batchFilterBtn" class="v2-batch-trio-btn v2-batch-filter-trio-btn" type="button" title="開啟多條件篩選抽屜">
-              <span>🌪️ 條件篩選</span>
-              <span id="batchFilterBadge" class="v2-batch-filter-trio-badge" style="display:none;">0</span>
-            </button>
-          </div>
-
           <!-- 折疊卡片 1：地圖視野與匯出管理 (巡視紀錄抽屜風格) -->
           <details class="panel-fold v2-batch-fold" id="batchViewToolsFold">
             <summary>🗺️ 地圖視野與匯出管理</summary>
             <div class="panel-fold-body">
               <div class="folder-btn-group" style="margin-bottom:0;">
-                <button id="batchFitBoundsBtn" class="btn-action v2-batch-action-btn" type="button" title="將地圖縮放至涵蓋此批次全部標記點位">🔍 全體視野</button>
+                <button id="batchFitBoundsBtn" class="btn-action btn-sync v2-batch-action-btn" type="button" title="將地圖縮放至涵蓋此批次全部標記點位">🔍 全體視野</button>
                 <button id="batchMeterExportBtn" class="btn-action btn-import-csv" type="button" title="匯出包含定位座標、門牌與電桿之 Excel">📥 匯出 Excel</button>
                 <button id="batchClearAllBtn" class="btn-action btn-import-json" type="button" title="清空此批次所有定位標記與資料">🗑️ 清空清單</button>
               </div>
@@ -413,6 +403,16 @@
               </div>
             </div>
           </details>
+
+          <!-- 三合一行：[設備標籤] [地址標籤] [條件篩選] (移動至跨裝置之下、清單之上) -->
+          <div class="v2-batch-trio-row">
+            <button id="batchToggleBgLabelsBtn" class="v2-batch-trio-btn is-active" type="button" title="點擊切換底圖設備標籤與桿名點位">👁️ 設備標籤</button>
+            <button id="batchToggleLabelsBtn" class="v2-batch-trio-btn is-active" type="button" title="點擊切換批次地址標籤與定位標記">🏷️ 地址標籤</button>
+            <button id="batchFilterBtn" class="v2-batch-trio-btn v2-batch-filter-trio-btn" type="button" title="開啟多條件篩選抽屜">
+              <span>🌪️ 條件篩選</span>
+              <span id="batchFilterBadge" class="v2-batch-filter-trio-badge" style="display:none;">0</span>
+            </button>
+          </div>
 
           <!-- 篩選生效時顯示之狀態提示列 -->
           <div id="batchFilterActiveBar" style="display:none;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:5px 8px;margin:3px 0 5px;font-size:11px;color:#065f46;">
