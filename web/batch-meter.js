@@ -103,20 +103,126 @@
   const doorplateCache = new Map();
   const poleSearchCache = new Map();
 
-  async function geocodeDoorplate(addr) {
+  function cleanAddrStr(s) {
+    return String(s || "").normalize("NFKC")
+      .replace(/[台臺]/g, "台")
+      .replace(/[()\[\]（）\s]+/g, "");
+  }
+
+  function extractCountyDistrict(addr) {
+    const norm = cleanAddrStr(addr);
+    let county = "";
+    let district = "";
+
+    const cm = norm.match(/(台北市|新北市|桃園市|台中市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|台東縣|澎湖縣|金門縣|連江縣)/);
+    if (cm) {
+      county = cm[1];
+      const rest = norm.slice(cm.index + cm[1].length);
+      const dm = rest.match(/^([^市縣]+?[區鄉鎮市])/);
+      if (dm) district = dm[1];
+    } else {
+      const dm = norm.match(/^([^市縣]+?[區鄉鎮市])/);
+      if (dm) district = dm[1];
+    }
+    return { county, district };
+  }
+
+  function canonicalAddr(s) {
+    let str = cleanAddrStr(s);
+    str = str.replace(/[^區鄉鎮市]+?里(?:\d+鄰)?/g, "");
+    str = str.replace(/(\d+)號之(\d+)號?/g, "$1-$2號");
+    str = str.replace(/(\d+)之(\d+)號?/g, "$1-$2號");
+    str = str.replace(/(\d+)[-－](\d+)號?/g, "$1-$2號");
+    str = str.replace(/[號樓Ff室].*$/g, "");
+    return str;
+  }
+
+  function getDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function findBestDoorplateMatch(rawAddr, results, expectedPt) {
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const { county, district } = extractCountyDistrict(rawAddr);
+    const targetCanonical = canonicalAddr(rawAddr);
+
+    // 1. 精準比對（同縣市、同行政區且標準化門牌完全相符）
+    for (const item of results) {
+      if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+      const itemAddr = cleanAddrStr(item.address);
+      if (county && !itemAddr.includes(county)) continue;
+      if (district && !itemAddr.includes(district)) continue;
+      if (canonicalAddr(item.address) === targetCanonical) {
+        if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 15) continue;
+        return item;
+      }
+    }
+
+    // 2. 同路名與同門牌號比對（同縣市與同行政區內）
+    const roadMatch = rawAddr.match(/([^市縣區鄉鎮]+?[路街道巷弄])/);
+    const numMatch = rawAddr.match(/(\d+(?:[-－之]\d+)?)/);
+    if (roadMatch && numMatch) {
+      const targetRoad = cleanAddrStr(roadMatch[1]);
+      const targetNum = numMatch[1].replace(/[－之]/, "-");
+
+      for (const item of results) {
+        if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+        const itemAddr = cleanAddrStr(item.address);
+        if (county && !itemAddr.includes(county)) continue;
+        if (district && !itemAddr.includes(district)) continue;
+        if (itemAddr.includes(targetRoad)) {
+          const itemNumMatch = itemAddr.match(/(\d+(?:[-－之號]\d+)?)/);
+          if (itemNumMatch && itemNumMatch[1].replace(/[－之號]/, "-") === targetNum) {
+            if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 15) continue;
+            return item;
+          }
+        }
+      }
+    }
+
+    // 3. 次選：同行政區且同路名
+    if (roadMatch) {
+      const targetRoad = cleanAddrStr(roadMatch[1]);
+      for (const item of results) {
+        if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+        const itemAddr = cleanAddrStr(item.address);
+        if (county && !itemAddr.includes(county)) continue;
+        if (district && !itemAddr.includes(district)) continue;
+        if (itemAddr.includes(targetRoad)) {
+          if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 15) continue;
+          return item;
+        }
+      }
+    }
+
+    // 4. 若輸入明確指定了縣市/區，但搜尋結果全部非該縣市/區（跨縣市模糊匹配），嚴禁採用其他縣市！
+    return null;
+  }
+
+  async function geocodeDoorplate(addr, expectedPt) {
     const cleanAddr = String(addr || "").normalize("NFKC").trim();
     if (!cleanAddr) return null;
 
     if (doorplateCache.has(cleanAddr)) {
-      return doorplateCache.get(cleanAddr);
+      const cached = doorplateCache.get(cleanAddr);
+      if (cached && expectedPt && getDistanceKm(cached.lat, cached.lng, expectedPt.lat, expectedPt.lng) > 15) {
+        return null;
+      }
+      return cached;
     }
 
     // 優先管道：GAS JSONP 經由代理向內政部國土測繪圖資查詢（無 CORS 限制）
     try {
       const data = await gasJsonpDoorplate(cleanAddr);
       if (data && (data.ok || Array.isArray(data.results)) && Array.isArray(data.results) && data.results.length > 0) {
-        const item = data.results[0];
-        if (Number.isFinite(item.x) && Number.isFinite(item.y)) {
+        const item = findBestDoorplateMatch(cleanAddr, data.results, expectedPt);
+        if (item && Number.isFinite(item.x) && Number.isFinite(item.y)) {
           const res = { lat: item.y, lng: item.x, fullAddr: item.address || cleanAddr };
           doorplateCache.set(cleanAddr, res);
           return res;
@@ -528,24 +634,29 @@
             }
           }
         } else if (r.addr) {
-          // 規則 2：是一般門牌地址 ➔ 調用電子門牌定位
-          const geo = await geocodeDoorplate(r.addr);
+          // 規則 2：是一般門牌地址 ➔ 調用電子門牌定位（以圖號坐標輔助交叉檢核，防範跨縣市亂飄）
+          let expectedPt = null;
+          if (r.code && typeof tpcFunc === "function") {
+            const pt = tpcFunc(r.code);
+            if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
+              expectedPt = pt;
+            }
+          }
+
+          const geo = await geocodeDoorplate(r.addr, expectedPt);
           if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
             r.lat = geo.lat;
             r.lng = geo.lng;
             r.locType = "doorplate";
             r.locLabel = "🏠 電子門牌精準定位（用戶住家）";
             doorplateSuccess++;
-          } else if (r.code && typeof tpcFunc === "function") {
-            // 門牌查無 ➔ 保底轉用圖號座標
-            const pt = tpcFunc(r.code);
-            if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
-              r.lat = pt.lat;
-              r.lng = pt.lng;
-              r.locType = "fallback";
-              r.locLabel = "⚡ 門牌查無，轉用圖號座標定位";
-              fallbackCount++;
-            }
+          } else if (expectedPt) {
+            // 門牌查無或偏離現場 ➔ 100% 保底轉用現場圖號座標定位
+            r.lat = expectedPt.lat;
+            r.lng = expectedPt.lng;
+            r.locType = "fallback";
+            r.locLabel = "⚡ 門牌查無，轉用圖號座標定位";
+            fallbackCount++;
           }
         } else if (r.code && typeof tpcFunc === "function") {
           const pt = tpcFunc(r.code);
