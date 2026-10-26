@@ -8,7 +8,7 @@
  *    - 地號地址（段/小段/號）➔ 台電 CPS 圖號座標秒級反推現場電桿
  *    - 門牌查無結果 ➔ 自動由圖號座標保底定位，確保 100% 定位
  * 2. 視野淨化與醒目標註：
- *    - 自動隱藏雜亂之背景電桿文字標籤，突顯批次解析之電表標記
+ *    - 自動隱藏底圖設備文字標籤，突顯批次解析之地址定位標記
  *    - 每顆電表浮動顯示專屬清晰標籤（#1 地址/電號/桿名）
  * 3. 電腦到手機無縫轉移：
  *    - 📱 產生 QR Code：手機相機一掃秒開，免登入免傳檔立即開始導航
@@ -427,8 +427,8 @@
     records: [],
     layerGroup: null,
     isProcessing: false,
-    showLabels: true,       // 是否顯示批次電表永久標籤
-    bgLabelsHidden: true,   // 是否已隱藏背景電桿標籤
+    showLabels: true,       // 是否顯示批次地址標籤與定位標記
+    bgLabelsHidden: true,   // 是否已隱藏底圖設備標籤
   };
 
   const controls = {
@@ -547,7 +547,7 @@
     });
   }
 
-  // --- 背景電桿標籤隱藏與顯示控制 ---
+  // --- 底圖設備標籤隱藏與顯示控制 ---
   function hideBackgroundPoleLabels() {
     const btn = document.getElementById("toggleLabelsBtn");
     if (btn && !btn.classList.contains("is-hidden")) {
@@ -570,7 +570,7 @@
       btn.click();
       const isHidden = btn.classList.contains("is-hidden");
       updateBgLabelsBtnUI(isHidden);
-      showToast(isHidden ? "🚫 已為您隱藏背景電桿與點位" : "👁️ 已還原背景電桿與點位");
+      showToast(isHidden ? "🚫 已為您隱藏設備標籤與點位" : "👁️ 已還原設備標籤與點位");
     }
   }
 
@@ -584,34 +584,40 @@
     state.bgLabelsHidden = hidden;
     if (!controls.toggleBgLabelsBtn) return;
     if (hidden) {
-      controls.toggleBgLabelsBtn.textContent = "🚫 背景電桿：已隱藏";
+      controls.toggleBgLabelsBtn.textContent = "🚫 設備標籤：已隱藏";
       controls.toggleBgLabelsBtn.classList.add("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.remove("is-active");
     } else {
-      controls.toggleBgLabelsBtn.textContent = "👁️ 背景電桿：顯示中";
+      controls.toggleBgLabelsBtn.textContent = "👁️ 設備標籤：顯示中";
       controls.toggleBgLabelsBtn.classList.remove("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.add("is-active");
     }
   }
 
-  // --- 批次電表標籤切換（Tooltip）---
+  // --- 批次地址標籤與數字標記切換（連動隱藏/顯示）---
   function toggleBatchLabels(force) {
     state.showLabels = typeof force === "boolean" ? force : !state.showLabels;
     if (controls.toggleLabelsBtn) {
-      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 電表標籤：顯示中" : "🏷️ 電表標籤：已隱藏";
+      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址標籤：顯示中" : "🏷️ 地址標籤：已隱藏";
       controls.toggleLabelsBtn.classList.toggle("is-active", state.showLabels);
       controls.toggleLabelsBtn.classList.toggle("is-hidden-state", !state.showLabels);
     }
-    if (state.layerGroup) {
+    const map = getMap();
+    if (!map || !state.layerGroup) return;
+
+    if (state.showLabels) {
+      if (!map.hasLayer(state.layerGroup)) {
+        map.addLayer(state.layerGroup);
+      }
       state.layerGroup.eachLayer(layer => {
         if (layer.getTooltip()) {
-          if (state.showLabels) {
-            layer.openTooltip();
-          } else {
-            layer.closeTooltip();
-          }
+          layer.openTooltip();
         }
       });
+    } else {
+      if (map.hasLayer(state.layerGroup)) {
+        map.removeLayer(state.layerGroup);
+      }
     }
   }
 
@@ -770,7 +776,7 @@
       localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records));
     } catch {}
 
-    // 自動隱藏雜亂之背景電桿標籤
+    // 自動隱藏底圖設備標籤，保持地圖清爽
     hideBackgroundPoleLabels();
 
     // 繪製地圖標記、文字標籤與清單卡片
@@ -789,7 +795,7 @@
       }
     }
 
-    showToast(`🎉 批次標記完成！成功定位 ${state.records.length} / ${total} 筆電表（已自動隱藏背景電桿標籤）`);
+    showToast(`🎉 批次標記完成！成功定位 ${state.records.length} / ${total} 筆地址（已自動隱藏底圖設備標籤）`);
   }
 
   function updateSummaryBadges(dp, grid, fallback) {
@@ -810,9 +816,17 @@
     if (!map || !window.L) return;
 
     if (!state.layerGroup) {
-      state.layerGroup = L.featureGroup().addTo(map);
+      state.layerGroup = L.featureGroup();
+      if (state.showLabels) {
+        state.layerGroup.addTo(map);
+      }
     } else {
       state.layerGroup.clearLayers();
+      if (state.showLabels && !map.hasLayer(state.layerGroup)) {
+        state.layerGroup.addTo(map);
+      } else if (!state.showLabels && map.hasLayer(state.layerGroup)) {
+        map.removeLayer(state.layerGroup);
+      }
     }
 
     state.records.forEach((r, idx) => {
@@ -880,6 +894,19 @@
       state.layerGroup.addLayer(marker);
       r.marker = marker;
     });
+
+    if (state.showLabels) {
+      if (!map.hasLayer(state.layerGroup)) {
+        map.addLayer(state.layerGroup);
+      }
+      state.layerGroup.eachLayer(layer => {
+        if (layer.getTooltip()) layer.openTooltip();
+      });
+    } else {
+      if (map.hasLayer(state.layerGroup)) {
+        map.removeLayer(state.layerGroup);
+      }
+    }
   }
 
   // 渲染分頁 2 的結果卡片
@@ -917,6 +944,9 @@
         const r = state.records[idx];
         const map = getMap();
         if (map && r && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
+          if (!state.showLabels) {
+            toggleBatchLabels(true); // 使用者點選特定項目查看時，自動還原顯示標籤與標記
+          }
           map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 17), { duration: 0.8 });
           if (r.marker) {
             setTimeout(() => r.marker.openPopup(), 400);
@@ -1208,6 +1238,9 @@
     controls.fitBoundsBtn?.addEventListener("click", () => {
       const map = getMap();
       if (map && state.layerGroup && state.records.length > 0) {
+        if (!state.showLabels) {
+          toggleBatchLabels(true); // 點擊全體視野時自動還原顯示
+        }
         const bounds = state.layerGroup.getBounds();
         if (bounds.isValid()) {
           map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
