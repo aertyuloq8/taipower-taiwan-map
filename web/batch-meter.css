@@ -172,6 +172,151 @@
   line-height: 1.4;
 }
 
+/* 批次電表重點規格標籤列 */
+.v2-batch-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.v2-batch-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+.v2-batch-chip.is-type {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+  font-weight: 700;
+}
+.v2-batch-chip.is-contract {
+  background: #f0fdfa;
+  color: #0f766e;
+  border-color: #99f6e4;
+}
+.v2-batch-chip.is-phase {
+  background: #eff6ff;
+  color: #1e40af;
+  border-color: #bfdbfe;
+}
+
+/* 清單卡片內之完整資料摺疊收合區 */
+.v2-batch-card-details {
+  margin-top: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  transition: all 0.2s ease;
+}
+.v2-batch-card-details[open] {
+  border-color: #94a3b8;
+  background: #fafafa;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.v2-batch-card-summary {
+  cursor: pointer;
+  color: #0f766e;
+  font-weight: 700;
+  user-select: none;
+  outline: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  list-style: none;
+}
+.v2-batch-card-summary::-webkit-details-marker {
+  display: none;
+}
+.v2-batch-card-arrow {
+  font-size: 9px;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+.v2-batch-card-details[open] .v2-batch-card-arrow {
+  transform: rotate(180deg);
+}
+.v2-batch-card-body {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed #e2e8f0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 8px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.v2-batch-card-row {
+  display: contents;
+}
+.v2-batch-card-key {
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.v2-batch-card-val {
+  color: #1e293b;
+  word-break: break-all;
+  font-weight: 500;
+}
+
+/* 地圖 POP 視窗內之完整資料摺疊收合區 */
+.batch-popup-collapse {
+  margin-top: 6px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+.batch-popup-collapse summary {
+  cursor: pointer;
+  color: #0f766e;
+  font-weight: 700;
+  outline: none;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  list-style: none;
+}
+.batch-popup-collapse summary::-webkit-details-marker {
+  display: none;
+}
+.batch-popup-details-body {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed #cbd5e1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 8px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.batch-popup-row {
+  display: contents;
+}
+.batch-popup-key {
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.batch-popup-val {
+  color: #1e293b;
+  word-break: break-all;
+  font-weight: 500;
+}
+
 /* Custom numbered map markers */
 .batch-marker-pin {
   display: flex;

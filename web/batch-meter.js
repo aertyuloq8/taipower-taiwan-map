@@ -49,6 +49,54 @@
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat.toFixed(6) + "," + lng.toFixed(6))}`;
   }
 
+  // 依位數格式化電號顯示（11位: 00-00-0000-00-0、9位: 00-0000-00-0、8位: 00-0000-00）
+  // 僅供介面顯示使用，底層原始資料完全不變動
+  function formatCustNo(val) {
+    if (!val) return "";
+    const s = String(val).trim();
+    const digits = s.replace(/\D/g, "");
+    if (digits.length === 11) {
+      return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 10)}-${digits.slice(10, 11)}`;
+    } else if (digits.length === 9) {
+      return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 9)}`;
+    } else if (digits.length === 8) {
+      return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6, 8)}`;
+    }
+    return s;
+  }
+
+  // 取得該筆記錄之完整自訂欄位清單（過濾掉頂部已常駐顯示之核心基礎欄位）
+  function getAllCustomFields(r) {
+    if (!r) return [];
+    const list = [];
+    const seen = new Set();
+    const skipKeys = new Set([
+      "電號", "custno", "用電地址", "地址", "addr", "address",
+      "土木設備", "桿名", "設備", "pole", "圖號座標", "圖號", "code", "定位型態"
+    ]);
+
+    if (r.extra && typeof r.extra === "object") {
+      for (const [k, v] of Object.entries(r.extra)) {
+        const cleanK = String(k || "").trim();
+        const cleanV = String(v ?? "").trim();
+        if (!cleanK || !cleanV) continue;
+        if (skipKeys.has(cleanK.toLowerCase()) || skipKeys.has(cleanK)) continue;
+        seen.add(cleanK);
+        list.push({ key: cleanK, val: cleanV });
+      }
+    }
+
+    // 補齊可能未在 extra 但已解析出之 meterNo 或 inspectTerm
+    if (r.meterNo && !seen.has("電表表號") && !seen.has("表號")) {
+      list.push({ key: "電表表號", val: String(r.meterNo).trim() });
+    }
+    if (r.inspectTerm && !seen.has("檢定期限") && !seen.has("檢定")) {
+      list.push({ key: "檢定期限", val: String(r.inspectTerm).trim() });
+    }
+
+    return list;
+  }
+
   async function ensureXLSX() {
     if (window.XLSX) return window.XLSX;
     return new Promise((resolve, reject) => {
@@ -420,12 +468,12 @@
     return records;
   }
 
-  // 範例資料（示範去識別化假資料，地址為實際可精準定位之新化區門牌）
+  // 範例資料（示範去識別化假資料，包含11位、9位、8位電號，地址為實際可精準定位之新化區門牌）
   const SAMPLE_TEXT = `電號\t契約\t型式\t相別\t電表表號\t檢定期限\t用電地址\t土木設備\t圖號座標
 10000000001\t15\t28\tD\t00000001\t115/04\t台南市新化區中正路８４７號\t新化54\tQ0999GB1201
 10000000002\t15\t27\tD\t00000002\t115/12\t台南市新化區正新北路１６號\t新北4\tQ0998GC7900
-10000000003\t15\t20\tD\t00000003\t116/05\t台南市新化區正新北路２號\t協興4\tQ0998GD57
-10000000004\t15\t25\tD\t00000004\t116/05\t台南市新化區太平街１７號\t朝天5左2\tQ1098CA40
+100000003\t15\t20\tD\t00000003\t116/05\t台南市新化區正新北路２號\t協興4\tQ0998GD57
+10000004\t15\t25\tD\t00000004\t116/05\t台南市新化區太平街１７號\t朝天5左2\tQ1098CA40
 10000000005\t15\t25\tD\t00000005\t115/12\t台南市新化區太平街９９之７號\t太平13\tQ0997FE64
 10000000006\t16\t28\tD\t00000006\t116/01\t台南市新化區中山路３３０號\t亭置式變場\tQ1097BB13
 10000000007\t15\t20\tD\t00000007\t116/10\t台南市新化區忠孝路１３７號\t正新7左4\tQ0997GD55
@@ -1103,7 +1151,7 @@
         completed++;
         const pct = Math.round((completed / total) * 100);
         controls.progressFill.style.width = `${pct}%`;
-        controls.progressText.textContent = `正在定位 (${completed}/${total})：${r.addr || r.code || r.custNo}...`;
+        controls.progressText.textContent = `正在定位 (${completed}/${total})：${r.addr || r.code || formatCustNo(r.custNo)}...`;
       }
     }
 
@@ -1200,11 +1248,14 @@
 
       const marker = L.marker([r.lat, r.lng], { icon });
 
+      // 依格式化規則顯示電號（原始資料 r.custNo 不變）
+      const formattedCustNo = formatCustNo(r.custNo);
+
       // 地圖上的永久醒目標籤 (Batch Map Label Tooltip)
       const labelHtml = `
         <div class="batch-map-label ${badgeClass}">
           <span class="batch-label-index">#${idx + 1}</span>
-          <span class="batch-label-text">${escapeHtml(r.addr || r.code || r.custNo)}</span>
+          <span class="batch-label-text">${escapeHtml(r.addr || r.code || formattedCustNo)}</span>
           ${r.pole ? `<span class="batch-label-pole">(${escapeHtml(r.pole)})</span>` : ""}
         </div>
       `;
@@ -1222,18 +1273,46 @@
 
       const navUrl = googleNavUrl(r.lat, r.lng);
 
+      const customFields = getAllCustomFields(r);
+
+      // 重點規格標籤 Chips (型式、契約、相別、表號、檢定)
+      const chips = [];
+      if (r.extra?.["型式"]) chips.push(`<span class="v2-batch-chip is-type">型式: ${escapeHtml(r.extra["型式"])}</span>`);
+      if (r.extra?.["契約"]) chips.push(`<span class="v2-batch-chip is-contract">契約: ${escapeHtml(r.extra["契約"])}</span>`);
+      if (r.extra?.["相別"]) chips.push(`<span class="v2-batch-chip is-phase">相別: ${escapeHtml(r.extra["相別"])}</span>`);
+      if (r.meterNo) chips.push(`<span class="v2-batch-chip">表號: ${escapeHtml(r.meterNo)}</span>`);
+      if (r.inspectTerm) chips.push(`<span class="v2-batch-chip">檢定: ${escapeHtml(r.inspectTerm)}</span>`);
+
+      // 完整資料摺疊收合區 (當有額外資料或欄位較多時可展開/收合)
+      const popupCollapseHtml = customFields.length > 0 ? `
+        <details class="batch-popup-collapse">
+          <summary>
+            <span>📋 完整資料 (${customFields.length} 欄位)</span>
+            <span style="font-size:9px;color:#94a3b8;">▼</span>
+          </summary>
+          <div class="batch-popup-details-body">
+            ${customFields.map(f => `
+              <div class="batch-popup-row">
+                <span class="batch-popup-key">${escapeHtml(f.key)}:</span>
+                <span class="batch-popup-val">${escapeHtml(f.val)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </details>
+      ` : "";
+
       const popupHtml = `
-        <div class="batch-popup-card" style="min-width:230px;line-height:1.5;font-size:12px;">
+        <div class="batch-popup-card" style="min-width:240px;line-height:1.5;font-size:12px;">
           <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:4px;margin-bottom:6px;">
-            <strong style="color:#0f766e;font-size:13px;">#${idx + 1} 電號 ${escapeHtml(r.custNo || "--")}</strong>
+            <strong style="color:#0f766e;font-size:13px;">#${idx + 1} 電號 ${escapeHtml(formattedCustNo || "--")}</strong>
             ${typeBadge}
           </div>
           <div style="color:#334155;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
           <div style="color:#334155;">⚡ <strong>設備：</strong>${escapeHtml(r.pole || "--")}</div>
           <div style="color:#334155;">🗺️ <strong>圖號：</strong><span style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(r.code || "--")}</span></div>
-          ${r.meterNo ? `<div style="color:#64748b;">🔢 表號：${escapeHtml(r.meterNo)}</div>` : ""}
-          ${r.inspectTerm ? `<div style="color:#64748b;">📅 檢定：${escapeHtml(r.inspectTerm)}</div>` : ""}
-          <div style="font-size:11px;color:#047857;margin-top:4px;padding:3px 6px;background:#f0fdf4;border-radius:4px;">
+          ${chips.length > 0 ? `<div class="v2-batch-chips-row" style="margin-top:4px;">${chips.join("")}</div>` : ""}
+          ${popupCollapseHtml}
+          <div style="font-size:11px;color:#047857;margin-top:6px;padding:3px 6px;background:#f0fdf4;border-radius:4px;">
             ↳ ${escapeHtml(r.locLabel)}
           </div>
           <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
@@ -1247,7 +1326,7 @@
         </div>
       `;
 
-      marker.bindPopup(popupHtml, { maxWidth: 300, className: "batch-meter-popup" });
+      marker.bindPopup(popupHtml, { maxWidth: 320, maxHeight: 420, className: "batch-meter-popup" });
       state.layerGroup.addLayer(marker);
       r.marker = marker;
     });
@@ -1281,17 +1360,46 @@
         ? `<span style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;">🏠 門牌</span>`
         : `<span style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;">⚡ 圖號</span>`;
 
+      const formattedCustNo = formatCustNo(r.custNo);
+      const customFields = getAllCustomFields(r);
+
+      const chips = [];
+      if (r.extra?.["型式"]) chips.push(`<span class="v2-batch-chip is-type">型式: ${escapeHtml(r.extra["型式"])}</span>`);
+      if (r.extra?.["契約"]) chips.push(`<span class="v2-batch-chip is-contract">契約: ${escapeHtml(r.extra["契約"])}</span>`);
+      if (r.extra?.["相別"]) chips.push(`<span class="v2-batch-chip is-phase">相別: ${escapeHtml(r.extra["相別"])}</span>`);
+      if (r.meterNo) chips.push(`<span class="v2-batch-chip">表號: ${escapeHtml(r.meterNo)}</span>`);
+      if (r.inspectTerm) chips.push(`<span class="v2-batch-chip">檢定: ${escapeHtml(r.inspectTerm)}</span>`);
+
+      const cardCollapseHtml = customFields.length > 0 ? `
+        <details class="v2-batch-card-details" onclick="event.stopPropagation()">
+          <summary class="v2-batch-card-summary">
+            <span>📋 完整資料 (${customFields.length} 欄位)</span>
+            <span class="v2-batch-card-arrow">▼</span>
+          </summary>
+          <div class="v2-batch-card-body">
+            ${customFields.map(f => `
+              <div class="v2-batch-card-row">
+                <span class="v2-batch-card-key">${escapeHtml(f.key)}:</span>
+                <span class="v2-batch-card-val">${escapeHtml(f.val)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </details>
+      ` : "";
+
       return `
         <div class="v2-batch-item" data-meter-idx="${idx}" ${r.filteredOut ? 'style="display:none;"' : ""}>
           <div class="v2-batch-item-title">
-            <span>#${idx + 1} ${escapeHtml(r.addr || r.code || r.custNo)}</span>
+            <span>#${idx + 1} ${escapeHtml(r.addr || r.code || formattedCustNo)}</span>
             ${typeBadge}
           </div>
           <div class="v2-batch-item-meta">
-            <span>電號: ${escapeHtml(r.custNo || "--")}</span> · <span>桿名: ${escapeHtml(r.pole || "--")}</span> · <span>圖號: ${escapeHtml(r.code || "--")}</span>
-            ${r.extra?.["型式"] ? ` · <span style="color:#0f766e;font-weight:700;">型式: ${escapeHtml(r.extra["型式"])}</span>` : ""}
-            ${r.extra?.["契約"] ? ` · <span>契約: ${escapeHtml(r.extra["契約"])}</span>` : ""}
+            <span>電號: <strong>${escapeHtml(formattedCustNo || "--")}</strong></span> · 
+            <span>桿名: ${escapeHtml(r.pole || "--")}</span> · 
+            <span>圖號: <code style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(r.code || "--")}</code></span>
           </div>
+          ${chips.length > 0 ? `<div class="v2-batch-chips-row">${chips.join("")}</div>` : ""}
+          ${cardCollapseHtml}
         </div>
       `;
     }).join("");
@@ -1326,12 +1434,30 @@
 
     try {
       await ensureXLSX();
-      const exportRows = [
-        ["編號", "電號", "用電地址", "土木設備(桿名)", "圖號座標", "電表表號", "檢定期限", "定位型態", "緯度(Lat)", "經度(Lng)", "Google導航網址"]
+
+      // 收集所有在 extra 中的自訂欄位（如型式、契約、相別、以及使用者匯入之其他欄位）
+      const allExtraKeys = new Set();
+      state.records.forEach(r => {
+        if (r.extra && typeof r.extra === "object") {
+          Object.keys(r.extra).forEach(k => {
+            const cleanK = String(k || "").trim();
+            if (cleanK && !["電號", "用電地址", "地址", "土木設備", "桿名", "設備", "圖號座標", "圖號", "定位型態", "電表表號", "檢定期限"].includes(cleanK)) {
+              allExtraKeys.add(cleanK);
+            }
+          });
+        }
+      });
+      const extraKeyList = Array.from(allExtraKeys);
+
+      const headerRow = [
+        "編號", "電號", "用電地址", "土木設備(桿名)", "圖號座標", "電表表號", "檢定期限", "定位型態",
+        ...extraKeyList,
+        "緯度(Lat)", "經度(Lng)", "Google導航網址"
       ];
+      const exportRows = [headerRow];
 
       state.records.forEach((r, idx) => {
-        exportRows.push([
+        const row = [
           idx + 1,
           r.custNo || "",
           r.addr || "",
@@ -1339,11 +1465,17 @@
           r.code || "",
           r.meterNo || "",
           r.inspectTerm || "",
-          r.locLabel || "",
+          r.locLabel || ""
+        ];
+        extraKeyList.forEach(k => {
+          row.push(r.extra?.[k] || "");
+        });
+        row.push(
           Number(r.lat.toFixed(6)),
           Number(r.lng.toFixed(6)),
           googleNavUrl(r.lat, r.lng)
-        ]);
+        );
+        exportRows.push(row);
       });
 
       const ws = XLSX.utils.aoa_to_sheet(exportRows);
