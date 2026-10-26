@@ -5893,7 +5893,7 @@ window.__appBooted = true;
               locLabel: r.locLabel || "",
               lat: r.lat,
               lng: r.lng,
-              raw: r.raw || null
+              extra: r.extra || {}
             }));
           } else {
             if (window.__bookmarkDB) {
