@@ -397,13 +397,17 @@
           </div>
 
           <!-- 跨裝置與檔案備份工具列 (支援本機檔案與 Google Drive 雙備份) -->
-          <div class="v2-batch-cloud-bar">
-            <button id="batchDownloadJsonBtn" class="v2-batch-btn-file" type="button" title="下載本機備份檔 (免登入、公司內網最佳)">💾 下載備份檔</button>
-            <button id="batchRestoreJsonBtn" class="v2-batch-btn-file" type="button" title="讀取本機備份檔 (免登入)">📂 讀取備份檔</button>
-            <input type="file" id="batchJsonFileInput" accept=".json" style="display:none;" />
-            <button id="batchDriveUploadBtn" class="v2-batch-btn-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳 Drive</button>
-            <button id="batchDriveRestoreBtn" class="v2-batch-btn-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 從 Drive 還原</button>
-            <button id="batchDriveDeleteBtn" class="v2-batch-btn-cloud" type="button" title="刪除個人 Google 雲端硬碟中的批次備份" style="color:#dc2626;border-color:#fca5a5;">🗑 刪除雲端備份</button>
+          <div class="v2-batch-backup-container">
+            <div class="v2-batch-btn-row">
+              <button id="batchDownloadJsonBtn" class="v2-batch-btn-sub is-local" type="button" title="下載本機備份檔 (免登入、公司內網最佳)">💾 下載備份檔</button>
+              <button id="batchRestoreJsonBtn" class="v2-batch-btn-sub is-local" type="button" title="讀取本機備份檔 (免登入)">📂 讀取備份檔</button>
+              <input type="file" id="batchJsonFileInput" accept=".json" style="display:none;" />
+            </div>
+            <div class="v2-batch-btn-row">
+              <button id="batchDriveUploadBtn" class="v2-batch-btn-sub is-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳雲端</button>
+              <button id="batchDriveRestoreBtn" class="v2-batch-btn-sub is-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 雲端還原</button>
+              <button id="batchDriveDeleteBtn" class="v2-batch-btn-sub is-danger" type="button" title="刪除個人 Google 雲端硬碟中的批次備份">🗑️ 刪除雲端</button>
+            </div>
           </div>
 
           <div id="batchMeterList" class="v2-batch-list"></div>

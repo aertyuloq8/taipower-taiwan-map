@@ -1357,6 +1357,22 @@
     }
   }
 
+  function normalizeImportedRecords(records) {
+    if (!Array.isArray(records)) return [];
+    records.forEach(r => {
+      if (!r.extra) r.extra = {};
+      if (r.locType && !r.extra["定位型態"]) {
+        r.extra["定位型態"] = r.locType === "doorplate" ? "🏠 門牌定位" : (r.locType === "fallback" ? "⚡ 圖號保底" : "⚡ 圖號定位");
+      }
+      if (r.pole && !r.extra["土木設備"]) r.extra["土木設備"] = r.pole;
+      if (r.inspectTerm && !r.extra["檢定期限"]) r.extra["檢定期限"] = r.inspectTerm;
+      if (r.meterType && !r.extra["型式"]) r.extra["型式"] = r.meterType;
+      if (r.contract && !r.extra["契約"]) r.extra["契約"] = r.contract;
+      if (r.phase && !r.extra["相別"]) r.extra["相別"] = r.phase;
+    });
+    return records;
+  }
+
   function getCleanRecords() {
     return state.records.map(r => ({
       custNo: r.custNo || "",
@@ -1412,12 +1428,14 @@
           showToast("備份檔為空資料！", "dup");
           return;
         }
-        state.records = parsed;
+        state.records = normalizeImportedRecords(parsed);
+        state.activeFilters = {};
         localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records));
         hideBackgroundPoleLabels();
         renderBatchMarkers();
         renderBatchList();
         updateSummaryBadges();
+        updateFilterStatusUI(state.records.length);
         switchTab("list");
         const map = getMap();
         if (map && state.layerGroup) {
@@ -1595,11 +1613,13 @@
       try {
         const saved = JSON.parse(localStorage.getItem("tp_batch_meter_bookmarks_v1") || "[]");
         if (Array.isArray(saved) && saved.length > 0) {
-          state.records = saved;
+          state.records = normalizeImportedRecords(saved);
+          state.activeFilters = {};
           hideBackgroundPoleLabels();
           renderBatchMarkers();
           renderBatchList();
           updateSummaryBadges();
+          updateFilterStatusUI(state.records.length);
           switchTab("list");
           const map = getMap();
           if (map && state.layerGroup) {
