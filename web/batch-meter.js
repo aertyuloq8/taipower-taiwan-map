@@ -152,14 +152,18 @@
     const { county, district } = extractCountyDistrict(rawAddr);
     const targetCanonical = canonicalAddr(rawAddr);
 
-    // 1. 精準比對（同縣市、同行政區且標準化門牌完全相符）
+    // 1. 精準比對（同縣市、同行政區且標準化門牌完全相符，例如「98-1號」對應「98號之1」）
     for (const item of results) {
       if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
       const itemAddr = cleanAddrStr(item.address);
       if (county && !itemAddr.includes(county)) continue;
       if (district && !itemAddr.includes(district)) continue;
       if (canonicalAddr(item.address) === targetCanonical) {
-        if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 15) continue;
+        // 若有提供電桿座標，門牌與現場電桿距離不可超過合理引進線範圍 (300公尺，避免山區或農電通訊地帶偏)
+        if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 0.3) {
+          console.warn(`[Batch] 門牌與現場電桿相差 ${getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng).toFixed(2)} km，自動以電桿現場為準`);
+          return null; // 回傳 null 自動觸發保底使用現場電桿圖號定位
+        }
         return item;
       }
     }
@@ -179,29 +183,17 @@
         if (itemAddr.includes(targetRoad)) {
           const itemNumMatch = itemAddr.match(/(\d+(?:[-－之號]\d+)?)/);
           if (itemNumMatch && itemNumMatch[1].replace(/[－之號]/, "-") === targetNum) {
-            if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 15) continue;
+            if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 0.3) {
+              return null;
+            }
             return item;
           }
         }
       }
     }
 
-    // 3. 次選：同行政區且同路名
-    if (roadMatch) {
-      const targetRoad = cleanAddrStr(roadMatch[1]);
-      for (const item of results) {
-        if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
-        const itemAddr = cleanAddrStr(item.address);
-        if (county && !itemAddr.includes(county)) continue;
-        if (district && !itemAddr.includes(district)) continue;
-        if (itemAddr.includes(targetRoad)) {
-          if (expectedPt && getDistanceKm(item.y, item.x, expectedPt.lat, expectedPt.lng) > 15) continue;
-          return item;
-        }
-      }
-    }
-
-    // 4. 若輸入明確指定了縣市/區，但搜尋結果全部非該縣市/區（跨縣市模糊匹配），嚴禁採用其他縣市！
+    // 嚴格原則：若輸入明確包含門牌號（如 9號），官方查無該號時，嚴禁降級取同路的別家號碼（如 43號）！
+    // 尤其當已有電桿圖號時，直接退回現場電桿更為精準（現場掛表桿位）！
     return null;
   }
 
@@ -211,7 +203,7 @@
 
     if (doorplateCache.has(cleanAddr)) {
       const cached = doorplateCache.get(cleanAddr);
-      if (cached && expectedPt && getDistanceKm(cached.lat, cached.lng, expectedPt.lat, expectedPt.lng) > 15) {
+      if (cached && expectedPt && getDistanceKm(cached.lat, cached.lng, expectedPt.lat, expectedPt.lng) > 0.3) {
         return null;
       }
       return cached;
@@ -610,6 +602,7 @@
     let fallbackCount = 0;
 
     const tpcFunc = window.tpcCodeToLatLng;
+    const strategy = document.querySelector('input[name="batchLocStrategy"]:checked')?.value || "pole";
 
     // 多線程並行隊列（兼顧速度與官方防爬蟲限制，提速 3~4 倍）
     const CONCURRENCY = 3;
@@ -621,51 +614,76 @@
         const r = records[i];
         const isParcel = isLandParcelAddress(r.addr);
 
-        if (isParcel) {
-          // 規則 1：是地號 ➔ 直接使用圖號座標精準反推現場電桿
+        if (strategy === "pole") {
+          // 【策略 A：電桿圖號優先（外勤換表/巡檢推薦，電桿掛表最準確）】
           if (r.code && typeof tpcFunc === "function") {
             const pt = tpcFunc(r.code);
             if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
               r.lat = pt.lat;
               r.lng = pt.lng;
               r.locType = "grid";
-              r.locLabel = "⚡ 圖號座標定位（地號農電桿）";
+              r.locLabel = "⚡ 圖號座標定位（現場掛表電桿）";
               gridCount++;
             }
-          }
-        } else if (r.addr) {
-          // 規則 2：是一般門牌地址 ➔ 調用電子門牌定位（以圖號坐標輔助交叉檢核，防範跨縣市亂飄）
-          let expectedPt = null;
-          if (r.code && typeof tpcFunc === "function") {
-            const pt = tpcFunc(r.code);
-            if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
-              expectedPt = pt;
+          } else if (r.addr) {
+            // 無圖號座標保底依門牌定位
+            const geo = await geocodeDoorplate(r.addr, null);
+            if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+              r.lat = geo.lat;
+              r.lng = geo.lng;
+              r.locType = "doorplate";
+              r.locLabel = "🏠 電子門牌精準定位（用戶住家）";
+              doorplateSuccess++;
             }
           }
+        } else {
+          // 【策略 B：智慧雙軌（門牌精確才用，相距逾300m或地號自動轉電桿現場）】
+          if (isParcel) {
+            // 是地號 ➔ 直接使用圖號座標精準反推現場電桿
+            if (r.code && typeof tpcFunc === "function") {
+              const pt = tpcFunc(r.code);
+              if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
+                r.lat = pt.lat;
+                r.lng = pt.lng;
+                r.locType = "grid";
+                r.locLabel = "⚡ 圖號座標定位（地號農電桿）";
+                gridCount++;
+              }
+            }
+          } else if (r.addr) {
+            // 是一般門牌地址 ➔ 調用電子門牌定位（以電桿座標輔助檢核，偏差 > 300m 自動以電桿為準）
+            let expectedPt = null;
+            if (r.code && typeof tpcFunc === "function") {
+              const pt = tpcFunc(r.code);
+              if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
+                expectedPt = pt;
+              }
+            }
 
-          const geo = await geocodeDoorplate(r.addr, expectedPt);
-          if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
-            r.lat = geo.lat;
-            r.lng = geo.lng;
-            r.locType = "doorplate";
-            r.locLabel = "🏠 電子門牌精準定位（用戶住家）";
-            doorplateSuccess++;
-          } else if (expectedPt) {
-            // 門牌查無或偏離現場 ➔ 100% 保底轉用現場圖號座標定位
-            r.lat = expectedPt.lat;
-            r.lng = expectedPt.lng;
-            r.locType = "fallback";
-            r.locLabel = "⚡ 門牌查無，轉用圖號座標定位";
-            fallbackCount++;
-          }
-        } else if (r.code && typeof tpcFunc === "function") {
-          const pt = tpcFunc(r.code);
-          if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
-            r.lat = pt.lat;
-            r.lng = pt.lng;
-            r.locType = "grid";
-            r.locLabel = "⚡ 圖號座標定位";
-            gridCount++;
+            const geo = await geocodeDoorplate(r.addr, expectedPt);
+            if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+              r.lat = geo.lat;
+              r.lng = geo.lng;
+              r.locType = "doorplate";
+              r.locLabel = "🏠 電子門牌精準定位（用戶住家）";
+              doorplateSuccess++;
+            } else if (expectedPt) {
+              // 門牌查無、號碼不符或偏離現場逾300m ➔ 100% 保底轉用現場電桿圖號定位
+              r.lat = expectedPt.lat;
+              r.lng = expectedPt.lng;
+              r.locType = "fallback";
+              r.locLabel = "⚡ 門牌查無或偏離，轉用現場電桿圖號定位";
+              fallbackCount++;
+            }
+          } else if (r.code && typeof tpcFunc === "function") {
+            const pt = tpcFunc(r.code);
+            if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
+              r.lat = pt.lat;
+              r.lng = pt.lng;
+              r.locType = "grid";
+              r.locLabel = "⚡ 圖號座標定位";
+              gridCount++;
+            }
           }
         }
 
