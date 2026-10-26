@@ -164,13 +164,13 @@
     for (let i = 0; i < Math.min(3, rows.length); i++) {
       const row = rows[i];
       const joined = row.join(" ");
-      if (/(?:電號|用電地址|圖號|座標|表號|土木)/.test(joined)) {
+      if (/(?:電號|地址|圖號|座標|表號|土木|桿|設備)/.test(joined)) {
         headerIdx = i;
         row.forEach((col, cIdx) => {
           const c = col.replace(/\s+/g, "");
           if (c.includes("電號")) custNoCol = cIdx;
           else if (c.includes("地址")) addrCol = cIdx;
-          else if (c.includes("土木") || c.includes("設備") || c.includes("桿名")) poleCol = cIdx;
+          else if (c.includes("桿") || c.includes("土木") || c.includes("設備") || c.includes("變壓器") || c.includes("亭置") || c.includes("開關") || c.includes("箱體") || c.includes("支號")) poleCol = cIdx;
           else if (c.includes("圖號") || c.includes("座標")) codeCol = cIdx;
           else if (c.includes("表號")) meterNoCol = cIdx;
           else if (c.includes("檢定") || c.includes("期限")) termCol = cIdx;
@@ -224,6 +224,29 @@
           if (/^\d{11}$/.test(col)) {
             custNo = col;
             break;
+          }
+        }
+      }
+
+      // 智慧備援推斷桿名 (土木設備)
+      if (poleCol === -1 || !pole) {
+        for (let colIdx = 0; colIdx < r.length; colIdx++) {
+          if (colIdx === custNoCol || colIdx === addrCol || colIdx === codeCol || colIdx === meterNoCol || colIdx === termCol) continue;
+          const col = r[colIdx];
+          if (!col || typeof col !== "string") continue;
+          const s = col.trim();
+          if (s.length < 2 || s.length > 25) continue;
+          if (/^\d+$/.test(s) || /^[A-Za-z0-9]+$/.test(s)) continue;
+          if (/^\d{2,3}[/-]\d{2}$/.test(s)) continue;
+          if (/亭置|變場|變壓器|配電|開關箱|開關|高幹|高分|配電室/.test(s)) {
+            pole = s;
+            break;
+          }
+          if (/[\u4e00-\u9fa5]/.test(s) && (/\d/.test(s) || /[左右分幹支號]/.test(s))) {
+            if (!/(?:市|縣|區|鄉|鎮).*?[路街巷弄號]/.test(s)) {
+              pole = s;
+              break;
+            }
           }
         }
       }
@@ -525,6 +548,19 @@
           r.locLabel = "⚡ 圖號座標定位";
           gridCount++;
         }
+      }
+
+      // 智慧備援：若無桿名但有圖號座標，嘗試從電桿圖資 API 自動反查桿名
+      if (!r.pole && r.code) {
+        try {
+          const resp = await fetch(`/api/search?q=${encodeURIComponent(r.code)}&limit=1`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (Array.isArray(data) && data.length > 0 && data[0].name) {
+              r.pole = data[0].name;
+            }
+          }
+        } catch {}
       }
 
       completed++;
@@ -846,12 +882,28 @@
       let added = 0;
       state.records.forEach((r, i) => {
         const id = `bm_batch_${Date.now()}_${i}`;
+        const addrText = r.addr || r.custNo || "批次電表標記";
+        const poleText = r.pole || "";
+        const codeText = r.code || "";
+        const custNoText = r.custNo || "";
+        const detailParts = [];
+        if (custNoText) detailParts.push(`電號: ${custNoText}`);
+        if (poleText) detailParts.push(`桿名: ${poleText}`);
+        if (codeText) detailParts.push(`圖號: ${codeText}`);
+        const detailText = detailParts.join(" · ");
+
         existing.unshift({
           id,
-          address: r.addr || r.custNo,
-          detail: `電號: ${r.custNo || '--'} · 桿名: ${r.pole || '--'} · 圖號: ${r.code || '--'}`,
+          addr: addrText,
+          address: addrText,
+          custNo: custNoText,
+          pole: poleText,
+          code: codeText,
+          detail: detailText,
           la: r.lat,
           ln: r.lng,
+          lat: r.lat,
+          lng: r.lng,
           visible: true,
           createdAt: now
         });
