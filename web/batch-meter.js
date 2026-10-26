@@ -49,6 +49,14 @@
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat.toFixed(6) + "," + lng.toFixed(6))}`;
   }
 
+  // 門牌地址導航優先（直接帶入用電地址，若無則依座標保底）
+  function googleAddrNavUrl(addr, lat, lng) {
+    if (addr && String(addr).trim()) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(String(addr).trim())}`;
+    }
+    return googleNavUrl(lat, lng);
+  }
+
   // 依位數格式化電號顯示（11位: 00-00-0000-00-0、9位: 00-0000-00-0、8位: 00-0000-00）
   // 僅供介面顯示使用，底層原始資料完全不變動
   function formatCustNo(val) {
@@ -1226,8 +1234,8 @@
     if (controls.tabCountBadge) controls.tabCountBadge.textContent = state.records.length;
   }
 
-  // 建立單一電表的詳細資訊卡 HTML（供單戶 Popup 或多戶共用變壓器 Popup 嵌入）
-  function buildSingleMeterDetailHtml(r, idx, showNavAndRemove = true) {
+  // 建立單一電表的詳細資訊卡 HTML（供單戶 Popup 或多戶共用點位 Popup 嵌入）
+  function buildSingleMeterDetailHtml(r, idx) {
     const formattedCustNo = formatCustNo(r.custNo);
     const typeBadge = r.locType === "doorplate"
       ? `<span style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;">🏠 門牌</span>`
@@ -1272,19 +1280,15 @@
         <div style="color:#334155;font-size:11px;line-height:1.4;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
         ${chips.length > 0 ? `<div class="v2-batch-chips-row" style="margin-top:3px;">${chips.join("")}</div>` : ""}
         ${popupCollapseHtml}
-        ${showNavAndRemove ? `
-          <div style="font-size:11px;color:#047857;margin-top:5px;padding:2px 5px;background:#f0fdf4;border-radius:4px;">
-            ↳ ${escapeHtml(r.locLabel)}
-          </div>
-          <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
-            <a class="popup-navigation-link" href="${googleNavUrl(r.lat, r.lng)}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
-              🗺️ 導航
-            </a>
-            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="flex:1;background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;min-height:28px;padding:4px 8px;">
-              🗑️ 移除標記
-            </button>
-          </div>
-        ` : ""}
+        <!-- 每戶卡片底部專屬操作：門牌導航與優雅移除按鈕 -->
+        <div class="batch-popup-item-actions">
+          <a class="batch-popup-act-btn is-nav" href="${googleAddrNavUrl(r.addr, r.lat, r.lng)}" target="_blank" rel="noopener" title="以 Google Maps 導航至此用戶用電地址">
+            🗺️ 導航至地址
+          </a>
+          <button type="button" class="batch-popup-act-btn is-del batch-remove-single-btn" data-remove-idx="${idx}" title="從清單與地圖中移除此電表">
+            🗑️ 移除此點
+          </button>
+        </div>
       </div>
     `;
   }
@@ -1333,8 +1337,9 @@
       // 1. Marker DivIcon 圖標
       const pinMainText = `${primaryRec._displayIndex}`;
       const pinBadge = isCluster ? `<span class="batch-marker-pin-badge">+${group.length - 1}</span>` : "";
+      const clusterTypeName = hasDoorplate ? "同門牌/住址" : "共用變壓器/桿位";
       const clusterTitle = isCluster
-        ? `⚡ 共用變壓器/桿位: 共 ${group.length} 只電表 (#${group.map(g => g.r._displayIndex).join(",")})`
+        ? `⚡ ${clusterTypeName}: 共 ${group.length} 只電表 (#${group.map(g => g.r._displayIndex).join(",")})`
         : `#${primaryRec._displayIndex} ${escapeHtml(primaryRec.addr || primaryRec.code)}`;
 
       const icon = L.divIcon({
@@ -1368,12 +1373,13 @@
         const allSameAddr = group.every(g => (g.r.addr || g.r.code) === firstAddr);
         const displayAddrText = allSameAddr ? `${firstAddr}` : `${firstAddr} 等 ${group.length} 戶`;
         const poleName = group.find(g => g.r.pole)?.r.pole || primaryRec.code || "";
+        const tagText = hasDoorplate ? `🏠 同門牌 (${group.length}表)` : `⚡ 共用變壓器 (${group.length}表)`;
 
         labelHtml = `
           <div class="batch-map-label ${badgeClass} is-cluster-label">
             <div class="batch-map-label-header">
               <span class="batch-label-index">${indicesStr}</span>
-              <span class="batch-label-multi-badge">⚡ 共用變壓器 (${group.length}表)</span>
+              <span class="batch-label-multi-badge">${tagText}</span>
             </div>
             <div class="batch-label-text">${escapeHtml(displayAddrText)}</div>
             ${poleName ? `<span class="batch-label-pole">(${escapeHtml(poleName)})</span>` : ""}
@@ -1390,7 +1396,6 @@
 
       // 3. Popup 彈窗詳細卡片
       let popupHtml = "";
-      const navUrl = googleNavUrl(lat, lng);
 
       if (!isCluster) {
         popupHtml = `
@@ -1398,28 +1403,39 @@
             <div style="color:#334155;margin-bottom:5px;font-size:11px;">
               ⚡ <strong>設備：</strong>${escapeHtml(primaryRec.pole || "--")} · 🗺️ <strong>圖號：</strong><code style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(primaryRec.code || "--")}</code>
             </div>
-            ${buildSingleMeterDetailHtml(primaryRec, primaryIdx, true)}
+            ${buildSingleMeterDetailHtml(primaryRec, primaryIdx)}
           </div>
         `;
       } else {
-        // 多戶共用同座標/同變壓器：頂部標明共用桿位，下方滾動清單呈現各戶
+        // 多戶共用同座標點位（同門牌透天大樓分表或同變壓器供電）
+        const headTitle = hasDoorplate ? "🏠 同門牌/住址點位" : "⚡ 變壓器/桿位共用點位";
+        const headCountBadge = hasDoorplate ? `共 ${group.length} 戶電表` : `共 ${group.length} 只電表`;
+        const headSubInfo = hasDoorplate
+          ? `📍 <strong>門牌：</strong>${escapeHtml(group[0].r.addr || "--")}${primaryRec.pole ? ` · ⚡ <strong>設備：</strong>${escapeHtml(primaryRec.pole)}` : ""}`
+          : `⚡ <strong>設備：</strong>${escapeHtml(primaryRec.pole || "--")} · 🗺️ <strong>圖號：</strong><code style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(primaryRec.code || "--")}</code>`;
+
+        const globalNavUrl = hasDoorplate
+          ? googleAddrNavUrl(group[0].r.addr, lat, lng)
+          : googleNavUrl(lat, lng);
+        const globalNavText = hasDoorplate ? "🏠 導航至此門牌地址" : "⚡ 導航至現場變壓器/桿位";
+
         popupHtml = `
           <div class="batch-popup-card" style="min-width:260px;max-width:320px;line-height:1.5;font-size:12px;">
             <div class="batch-popup-cluster-head">
               <div style="display:flex;justify-content:space-between;align-items:center;">
-                <strong style="color:#0f766e;font-size:13px;">⚡ 變壓器/桿位共用點位</strong>
-                <span class="batch-popup-cluster-count">共 ${group.length} 只電表</span>
+                <strong style="color:#0f766e;font-size:13px;">${headTitle}</strong>
+                <span class="batch-popup-cluster-count">${headCountBadge}</span>
               </div>
               <div style="color:#475569;font-size:11px;margin-top:3px;">
-                ⚡ <strong>設備：</strong>${escapeHtml(primaryRec.pole || "--")} · 🗺️ <strong>圖號：</strong><code style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(primaryRec.code || "--")}</code>
+                ${headSubInfo}
               </div>
             </div>
             <div style="max-height:240px;overflow-y:auto;padding-right:2px;display:flex;flex-direction:column;gap:6px;">
-              ${group.map(item => buildSingleMeterDetailHtml(item.r, item.idx, false)).join("")}
+              ${group.map(item => buildSingleMeterDetailHtml(item.r, item.idx)).join("")}
             </div>
             <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
-              <a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
-                🗺️ 導航至此變壓器
+              <a class="popup-navigation-link" href="${globalNavUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
+                ${globalNavText}
               </a>
             </div>
           </div>

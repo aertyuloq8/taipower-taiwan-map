@@ -506,6 +506,49 @@
 .batch-popup-meter-item:last-child {
   margin-bottom: 0;
 }
+.batch-popup-item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed #e2e8f0;
+}
+.batch-popup-act-btn {
+  flex: 1;
+  min-height: 27px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 8px;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.batch-popup-act-btn.is-nav {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.batch-popup-act-btn.is-nav:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+.batch-popup-act-btn.is-del {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+.batch-popup-act-btn.is-del:hover {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecdd3;
+}
 .v2-batch-badge-shared {
   background: #fef3c7;
   color: #b45309;
