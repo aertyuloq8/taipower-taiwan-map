@@ -99,39 +99,33 @@
     });
   }
 
+  // 建立門牌與桿號查詢快取，避免重複地址反覆呼叫網路
+  const doorplateCache = new Map();
+  const poleSearchCache = new Map();
+
   async function geocodeDoorplate(addr) {
     const cleanAddr = String(addr || "").normalize("NFKC").trim();
     if (!cleanAddr) return null;
 
-    // 優先管道 1：後端 Adapter（本機 Vite 或 Vercel Serverless API）
-    if (window.CADASTRE_ADAPTER_URL) {
-      try {
-        const url = `${window.CADASTRE_ADAPTER_URL}?action=addrGeo&word=${encodeURIComponent(cleanAddr)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && (data.ok || Array.isArray(data.results)) && Array.isArray(data.results) && data.results.length > 0) {
-            const item = data.results[0];
-            if (Number.isFinite(item.x) && Number.isFinite(item.y)) {
-              return { lat: item.y, lng: item.x, fullAddr: item.address || cleanAddr };
-            }
-          }
-        }
-      } catch (e) {}
+    if (doorplateCache.has(cleanAddr)) {
+      return doorplateCache.get(cleanAddr);
     }
 
-    // 備援管道 2：GAS JSONP（無 CORS 限制）
+    // 優先管道：GAS JSONP 經由代理向內政部國土測繪圖資查詢（無 CORS 限制）
     try {
       const data = await gasJsonpDoorplate(cleanAddr);
       if (data && (data.ok || Array.isArray(data.results)) && Array.isArray(data.results) && data.results.length > 0) {
         const item = data.results[0];
         if (Number.isFinite(item.x) && Number.isFinite(item.y)) {
-          return { lat: item.y, lng: item.x, fullAddr: item.address || cleanAddr };
+          const res = { lat: item.y, lng: item.x, fullAddr: item.address || cleanAddr };
+          doorplateCache.set(cleanAddr, res);
+          return res;
         }
       }
     } catch (e) {
       console.warn("門牌查詢失敗：", e.message);
     }
+    doorplateCache.set(cleanAddr, null);
     return null;
   }
 
@@ -511,72 +505,90 @@
 
     const tpcFunc = window.tpcCodeToLatLng;
 
-    for (let i = 0; i < total; i++) {
-      const r = records[i];
-      const isParcel = isLandParcelAddress(r.addr);
+    // 多線程並行隊列（兼顧速度與官方防爬蟲限制，提速 3~4 倍）
+    const CONCURRENCY = 3;
+    let nextIndex = 0;
 
-      if (isParcel) {
-        // 規則 1：是地號 ➔ 直接使用圖號座標精準反推現場電桿
-        if (r.code && typeof tpcFunc === "function") {
+    async function processNextRecord() {
+      while (nextIndex < total) {
+        const i = nextIndex++;
+        const r = records[i];
+        const isParcel = isLandParcelAddress(r.addr);
+
+        if (isParcel) {
+          // 規則 1：是地號 ➔ 直接使用圖號座標精準反推現場電桿
+          if (r.code && typeof tpcFunc === "function") {
+            const pt = tpcFunc(r.code);
+            if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
+              r.lat = pt.lat;
+              r.lng = pt.lng;
+              r.locType = "grid";
+              r.locLabel = "⚡ 圖號座標定位（地號農電桿）";
+              gridCount++;
+            }
+          }
+        } else if (r.addr) {
+          // 規則 2：是一般門牌地址 ➔ 調用電子門牌定位
+          const geo = await geocodeDoorplate(r.addr);
+          if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+            r.lat = geo.lat;
+            r.lng = geo.lng;
+            r.locType = "doorplate";
+            r.locLabel = "🏠 電子門牌精準定位（用戶住家）";
+            doorplateSuccess++;
+          } else if (r.code && typeof tpcFunc === "function") {
+            // 門牌查無 ➔ 保底轉用圖號座標
+            const pt = tpcFunc(r.code);
+            if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
+              r.lat = pt.lat;
+              r.lng = pt.lng;
+              r.locType = "fallback";
+              r.locLabel = "⚡ 門牌查無，轉用圖號座標定位";
+              fallbackCount++;
+            }
+          }
+        } else if (r.code && typeof tpcFunc === "function") {
           const pt = tpcFunc(r.code);
           if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
             r.lat = pt.lat;
             r.lng = pt.lng;
             r.locType = "grid";
-            r.locLabel = "⚡ 圖號座標定位（地號農電桿）";
+            r.locLabel = "⚡ 圖號座標定位";
             gridCount++;
           }
         }
-      } else if (r.addr) {
-        // 規則 2：是一般門牌地址 ➔ 調用電子門牌定位
-        const geo = await geocodeDoorplate(r.addr);
-        if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
-          r.lat = geo.lat;
-          r.lng = geo.lng;
-          r.locType = "doorplate";
-          r.locLabel = "🏠 電子門牌精準定位（用戶住家）";
-          doorplateSuccess++;
-        } else if (r.code && typeof tpcFunc === "function") {
-          // 門牌查無 ➔ 保底轉用圖號座標
-          const pt = tpcFunc(r.code);
-          if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
-            r.lat = pt.lat;
-            r.lng = pt.lng;
-            r.locType = "fallback";
-            r.locLabel = "⚡ 門牌查無，轉用圖號座標定位";
-            fallbackCount++;
+
+        // 智慧備援：若無桿名但有圖號座標，嘗試從電桿圖資 API 自動反查桿名 (含快取)
+        if (!r.pole && r.code) {
+          if (poleSearchCache.has(r.code)) {
+            r.pole = poleSearchCache.get(r.code);
+          } else {
+            try {
+              const resp = await fetch(`/api/search?q=${encodeURIComponent(r.code)}&limit=1`);
+              if (resp.ok) {
+                const data = await resp.json();
+                if (Array.isArray(data) && data.length > 0 && data[0].name) {
+                  r.pole = data[0].name;
+                  poleSearchCache.set(r.code, r.pole);
+                }
+              }
+            } catch {}
           }
         }
-        await new Promise(res => setTimeout(res, 50));
-      } else if (r.code && typeof tpcFunc === "function") {
-        const pt = tpcFunc(r.code);
-        if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
-          r.lat = pt.lat;
-          r.lng = pt.lng;
-          r.locType = "grid";
-          r.locLabel = "⚡ 圖號座標定位";
-          gridCount++;
-        }
-      }
 
-      // 智慧備援：若無桿名但有圖號座標，嘗試從電桿圖資 API 自動反查桿名
-      if (!r.pole && r.code) {
-        try {
-          const resp = await fetch(`/api/search?q=${encodeURIComponent(r.code)}&limit=1`);
-          if (resp.ok) {
-            const data = await resp.json();
-            if (Array.isArray(data) && data.length > 0 && data[0].name) {
-              r.pole = data[0].name;
-            }
-          }
-        } catch {}
+        completed++;
+        const pct = Math.round((completed / total) * 100);
+        controls.progressFill.style.width = `${pct}%`;
+        controls.progressText.textContent = `正在定位 (${completed}/${total})：${r.addr || r.code || r.custNo}...`;
       }
-
-      completed++;
-      const pct = Math.round((completed / total) * 100);
-      controls.progressFill.style.width = `${pct}%`;
-      controls.progressText.textContent = `正在定位 (${completed}/${total})：${r.addr || r.code || r.custNo}...`;
     }
+
+    const poolSize = Math.min(CONCURRENCY, total);
+    const workers = [];
+    for (let w = 0; w < poolSize; w++) {
+      workers.push(processNextRecord());
+    }
+    await Promise.all(workers);
 
     state.records = records.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
     state.isProcessing = false;
