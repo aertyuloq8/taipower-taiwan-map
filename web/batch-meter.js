@@ -482,7 +482,6 @@
     driveUploadBtn: null,
     driveRestoreBtn: null,
     driveDeleteBtn: null,
-    toBookmarksBtn: null,
     clearInputBtn: null,
     clearInputBtnTop: null,
     downloadJsonBtn: null,
@@ -534,7 +533,6 @@
     controls.driveUploadBtn = document.getElementById("batchDriveUploadBtn");
     controls.driveRestoreBtn = document.getElementById("batchDriveRestoreBtn");
     controls.driveDeleteBtn = document.getElementById("batchDriveDeleteBtn");
-    controls.toBookmarksBtn = document.getElementById("batchToBookmarksBtn");
     controls.downloadJsonBtn = document.getElementById("batchDownloadJsonBtn");
     controls.restoreJsonBtn = document.getElementById("batchRestoreJsonBtn");
     controls.jsonFileInput = document.getElementById("batchJsonFileInput");
@@ -672,7 +670,13 @@
     const priorityKeys = ["型式", "契約", "相別", "定位型態", "檢定期限", "土木設備", "桿名", "營業區"];
 
     state.records.forEach(r => {
-      const extra = r.extra || {};
+      if (!r.extra) r.extra = {};
+      if (r.locType && !r.extra["定位型態"]) {
+        r.extra["定位型態"] = r.locType === "doorplate" ? "🏠 門牌定位" : (r.locType === "fallback" ? "⚡ 圖號保底" : "⚡ 圖號定位");
+      }
+      if (r.pole && !r.extra["土木設備"]) r.extra["土木設備"] = r.pole;
+      if (r.inspectTerm && !r.extra["檢定期限"]) r.extra["檢定期限"] = r.inspectTerm;
+      const extra = r.extra;
       for (const [k, rawVal] of Object.entries(extra)) {
         if (!k) continue;
         const v = String(rawVal === undefined || rawVal === null ? "" : rawVal).trim();
@@ -820,7 +824,7 @@
     if (!controls.filterDrawer || !controls.filterBody) return;
     const dims = getFilterableDimensions();
     if (!dims.length) {
-      showToast("此清單無足夠的多樣性欄位可供篩選", "dup");
+      showToast("💡 請貼上包含「型式」、「契約」等完整表頭資料以啟用分類篩選", "dup");
       return;
     }
 
@@ -1365,7 +1369,7 @@
       locLabel: r.locLabel || "",
       lat: r.lat,
       lng: r.lng,
-      raw: r.raw || null
+      extra: r.extra || null
     }));
   }
 
@@ -1458,65 +1462,6 @@
       window.__bookmarkDrive.deleteCloud("batch");
     } else {
       showToast("Google Drive 模組尚未就緒，請稍候重試", "error");
-    }
-  }
-
-  // --- 轉存至門牌收藏 ---
-  function saveToAddressBookmarks() {
-    if (!state.records.length) {
-      showToast("目前沒有標記資料可轉存！", "dup");
-      return;
-    }
-    try {
-      const key = "tp_address_bookmarks_v1";
-      let existing = [];
-      try { existing = JSON.parse(localStorage.getItem(key) || "[]"); } catch { existing = []; }
-      const now = new Date().toISOString();
-      let added = 0;
-      state.records.forEach((r, i) => {
-        const id = `bm_batch_${Date.now()}_${i}`;
-        const addrText = r.addr || r.custNo || r.code || "批次電表標記";
-        const poleText = r.pole || "";
-        const codeText = r.code || "";
-        const custNoText = r.custNo || "";
-        const meterNoText = r.meterNo || "";
-        const inspectTermText = r.inspectTerm || "";
-
-        const detailParts = [];
-        if (custNoText && addrText !== custNoText) detailParts.push(`電號: ${custNoText}`);
-        if (poleText) detailParts.push(`桿名: ${poleText}`);
-        if (codeText) detailParts.push(`圖號: ${codeText}`);
-        if (meterNoText) detailParts.push(`表號: ${meterNoText}`);
-        if (inspectTermText) detailParts.push(`期限: ${inspectTermText}`);
-        const detailText = detailParts.join(" · ");
-
-        existing.unshift({
-          id,
-          addr: addrText,
-          address: addrText,
-          custNo: custNoText,
-          pole: poleText,
-          code: codeText,
-          meterNo: meterNoText,
-          inspectTerm: inspectTermText,
-          detail: detailText,
-          la: r.lat,
-          ln: r.lng,
-          lat: r.lat,
-          lng: r.lng,
-          visible: true,
-          createdAt: now
-        });
-        added++;
-      });
-      localStorage.setItem(key, JSON.stringify(existing));
-      if (window.__bookmarkDB) {
-        window.__bookmarkDB.saveBookmarks("address", existing).catch(() => {});
-      }
-      window.dispatchEvent(new CustomEvent("bookmarksRestored"));
-      showToast(`⭐ 已成功將 ${added} 筆電表轉存至「門牌收藏」！可在「🏠 門牌 ➔ ⭐ 收藏」中檢視`);
-    } catch (e) {
-      showToast("轉存失敗：" + e.message, "error");
     }
   }
 
@@ -1631,13 +1576,11 @@
       e.target.value = "";
     });
 
-    // 雲端備份與門牌收藏
+    // 雲端備份
     controls.driveUploadBtn?.addEventListener("click", uploadBatchToDrive);
     controls.driveRestoreBtn?.addEventListener("click", restoreBatchFromDrive);
     controls.driveDeleteBtn?.addEventListener("click", deleteBatchFromDrive);
-    controls.toBookmarksBtn?.addEventListener("click", saveToAddressBookmarks);
-
-    syncBgLabelsBtnWithMap();
+        syncBgLabelsBtnWithMap();
 
     // 監聽標籤/點位圖層切換事件，實現與圖層控制選單雙向即時連動
     window.addEventListener("poleLabelsToggled", (e) => {
@@ -1694,9 +1637,18 @@
       const cached = JSON.parse(localStorage.getItem("tp_batch_meter_bookmarks_v1") || "[]");
       if (Array.isArray(cached) && cached.length > 0) {
         state.records = cached;
+        state.records.forEach(r => {
+          if (!r.extra) r.extra = {};
+          if (r.locType && !r.extra["定位型態"]) {
+            r.extra["定位型態"] = r.locType === "doorplate" ? "🏠 門牌定位" : (r.locType === "fallback" ? "⚡ 圖號保底" : "⚡ 圖號定位");
+          }
+          if (r.pole && !r.extra["土木設備"]) r.extra["土木設備"] = r.pole;
+          if (r.inspectTerm && !r.extra["檢定期限"]) r.extra["檢定期限"] = r.inspectTerm;
+        });
         renderBatchMarkers();
         renderBatchList();
         updateSummaryBadges();
+        updateFilterStatusUI(state.records.length);
       }
     } catch {}
   }
