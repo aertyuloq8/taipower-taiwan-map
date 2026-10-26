@@ -670,11 +670,11 @@
     state.bgLabelsHidden = hidden;
     if (!controls.toggleBgLabelsBtn) return;
     if (hidden) {
-      controls.toggleBgLabelsBtn.textContent = "🚫 設備：已隱藏";
+      controls.toggleBgLabelsBtn.textContent = "🚫 設備標籤：已隱藏";
       controls.toggleBgLabelsBtn.classList.add("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.remove("is-active");
     } else {
-      controls.toggleBgLabelsBtn.textContent = "👁️ 設備：顯示中";
+      controls.toggleBgLabelsBtn.textContent = "👁️ 設備標籤：顯示中";
       controls.toggleBgLabelsBtn.classList.remove("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.add("is-active");
     }
@@ -684,7 +684,7 @@
   function toggleBatchLabels(force) {
     state.showLabels = typeof force === "boolean" ? force : !state.showLabels;
     if (controls.toggleLabelsBtn) {
-      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址：顯示中" : "🏷️ 地址：已隱藏";
+      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址標籤：顯示中" : "🏷️ 地址標籤：已隱藏";
       controls.toggleLabelsBtn.classList.toggle("is-active", state.showLabels);
       controls.toggleLabelsBtn.classList.toggle("is-hidden-state", !state.showLabels);
     }
