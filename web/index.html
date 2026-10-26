@@ -368,41 +368,50 @@
 
         <!-- Tab 2: 結果清單與匯出操作 -->
         <div class="v2-tab-pane" data-pane="list" data-panel="batch" hidden>
-          <div class="v2-batch-summary">
-            <span class="v2-batch-badge-item">總計 <strong id="batchTotalCount">0</strong> 筆</span>
-            <span class="v2-batch-badge-item is-green">🏠 門牌 <strong id="batchDoorplateCount">0</strong> 筆</span>
-            <span class="v2-batch-badge-item is-blue">⚡ 圖號 <strong id="batchGridCount">0</strong> 筆</span>
+          <!-- 統計數值與標籤開關整併為超輕量單行 (精省空間) -->
+          <div class="v2-batch-status-bar">
+            <div class="v2-batch-stats-mini">
+              <span class="v2-batch-stat-dot is-dp" title="電子門牌精準定位">🏠 門牌 <strong id="batchDoorplateCount">0</strong></span>
+              <span class="v2-batch-stat-dot is-grid" title="圖號座標定位">⚡ 圖號 <strong id="batchGridCount">0</strong></span>
+              <span id="batchTotalCount" style="display:none;">0</span>
+            </div>
+            <div class="v2-batch-labels-mini">
+              <button id="batchToggleBgLabelsBtn" class="v2-batch-btn-mini is-active" type="button" title="點擊切換是否顯示底圖台電設備標籤">👁️ 設備：顯示中</button>
+              <button id="batchToggleLabelsBtn" class="v2-batch-btn-mini is-active" type="button" title="點擊切換這批地址標籤與定位標記">🏷️ 地址：顯示中</button>
+            </div>
           </div>
 
-          <!-- 標籤顯示控制：可獨立隱藏背景設備雜訊，或切換地址標籤 -->
-          <div class="v2-batch-controls-row">
-            <span style="color:#64748b;font-weight:700;">標籤：</span>
-            <button id="batchToggleBgLabelsBtn" class="v2-batch-btn-chip is-active" type="button" title="點擊切換是否顯示底圖台電設備標籤">👁️ 設備標籤：顯示中</button>
-            <button id="batchToggleLabelsBtn" class="v2-batch-btn-chip is-active" type="button" title="點擊切換這批地址標籤與定位標記">🏷️ 地址標籤：顯示中</button>
-          </div>
-
-          <div style="display:flex;gap:6px;margin:4px 0 6px;">
+          <div style="display:flex;gap:6px;margin:3px 0 4px;">
             <button id="batchFitBoundsBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;">🔍 全體視野</button>
             <button id="batchMeterExportBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;background:#f0fdf4;color:#166534;border-color:#bbf7d0;">📥 匯出 Excel</button>
             <button id="batchClearAllBtn" class="v2-batch-btn-secondary" type="button" style="font-size:11px;color:#dc2626;">🗑️ 清空</button>
           </div>
 
-          <!-- 跨裝置與檔案備份工具列 (分組整齊對稱版，適應手機與桌面) -->
-          <div class="v2-batch-backup-container">
-            <div class="v2-batch-btn-row">
-              <button id="batchDownloadJsonBtn" class="v2-batch-btn-sub is-local" type="button" title="下載本機備份檔 (免登入、公司內網最佳)">💾 下載備份檔</button>
-              <button id="batchRestoreJsonBtn" class="v2-batch-btn-sub is-local" type="button" title="讀取本機備份檔 (免登入)">📂 讀取備份檔</button>
-              <input type="file" id="batchJsonFileInput" accept=".json" style="display:none;" />
+          <!-- 跨裝置與檔案備份工具列 (可折疊收合，預設收起節省手機空間) -->
+          <details id="batchBackupAccordion" class="v2-batch-backup-accordion">
+            <summary class="v2-batch-backup-summary">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span>⚙️ 跨裝置雲端與本機備份</span>
+                <span style="font-size:10px;font-weight:normal;color:#64748b;">(本機/Drive)</span>
+              </div>
+              <span class="v2-batch-backup-arrow">▾</span>
+            </summary>
+            <div class="v2-batch-backup-container">
+              <div class="v2-batch-btn-row">
+                <button id="batchDownloadJsonBtn" class="v2-batch-btn-sub is-local" type="button" title="下載本機備份檔 (免登入、公司內網最佳)">💾 下載備份檔</button>
+                <button id="batchRestoreJsonBtn" class="v2-batch-btn-sub is-local" type="button" title="讀取本機備份檔 (免登入)">📂 讀取備份檔</button>
+                <input type="file" id="batchJsonFileInput" accept=".json" style="display:none;" />
+              </div>
+              <div class="v2-batch-btn-row">
+                <button id="batchDriveUploadBtn" class="v2-batch-btn-sub is-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳雲端</button>
+                <button id="batchDriveRestoreBtn" class="v2-batch-btn-sub is-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 雲端還原</button>
+                <button id="batchDriveDeleteBtn" class="v2-batch-btn-sub is-danger" type="button" title="刪除個人 Google 雲端硬碟中的批次備份">🗑️ 刪除雲端</button>
+              </div>
             </div>
-            <div class="v2-batch-btn-row">
-              <button id="batchDriveUploadBtn" class="v2-batch-btn-sub is-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳雲端</button>
-              <button id="batchDriveRestoreBtn" class="v2-batch-btn-sub is-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 雲端還原</button>
-              <button id="batchDriveDeleteBtn" class="v2-batch-btn-sub is-danger" type="button" title="刪除個人 Google 雲端硬碟中的批次備份">🗑️ 刪除雲端</button>
-            </div>
-          </div>
+          </details>
 
           <!-- 雲端列之下：專屬多條件篩選操作列 (直覺統領下方清單) -->
-          <div style="margin:7px 0 4px;">
+          <div style="margin:4px 0 3px;">
             <button id="batchFilterBtn" class="v2-batch-btn-filter-main" type="button">
               <span>🌪️ 多條件篩選標記</span>
               <span id="batchFilterBadge" style="display:none;background:#059669;color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;">0</span>
@@ -410,7 +419,7 @@
           </div>
 
           <!-- 篩選生效時顯示之狀態提示列 -->
-          <div id="batchFilterActiveBar" style="display:none;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:5px 8px;margin:3px 0 6px;font-size:11px;color:#065f46;">
+          <div id="batchFilterActiveBar" style="display:none;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:5px 8px;margin:2px 0 4px;font-size:11px;color:#065f46;">
             <span>🌪️ 篩選生效中：顯示 <strong id="batchFilterVisibleCount">0</strong> / <span id="batchFilterTotalCount">0</span> 筆</span>
             <button id="batchFilterResetQuickBtn" type="button" style="background:none;border:none;color:#dc2626;font-size:11px;cursor:pointer;font-weight:700;text-decoration:underline;">✕ 重設篩選</button>
           </div>

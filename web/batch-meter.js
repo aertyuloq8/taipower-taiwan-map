@@ -670,11 +670,11 @@
     state.bgLabelsHidden = hidden;
     if (!controls.toggleBgLabelsBtn) return;
     if (hidden) {
-      controls.toggleBgLabelsBtn.textContent = "🚫 設備標籤：已隱藏";
+      controls.toggleBgLabelsBtn.textContent = "🚫 設備：已隱藏";
       controls.toggleBgLabelsBtn.classList.add("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.remove("is-active");
     } else {
-      controls.toggleBgLabelsBtn.textContent = "👁️ 設備標籤：顯示中";
+      controls.toggleBgLabelsBtn.textContent = "👁️ 設備：顯示中";
       controls.toggleBgLabelsBtn.classList.remove("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.add("is-active");
     }
@@ -684,7 +684,7 @@
   function toggleBatchLabels(force) {
     state.showLabels = typeof force === "boolean" ? force : !state.showLabels;
     if (controls.toggleLabelsBtn) {
-      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址標籤：顯示中" : "🏷️ 地址標籤：已隱藏";
+      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址：顯示中" : "🏷️ 地址：已隱藏";
       controls.toggleLabelsBtn.classList.toggle("is-active", state.showLabels);
       controls.toggleLabelsBtn.classList.toggle("is-hidden-state", !state.showLabels);
     }
@@ -1197,7 +1197,11 @@
       const bounds = state.layerGroup.getBounds();
       if (bounds.isValid()) {
         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
+        // 避開 fitBounds 觸發 zoomstart 自動收合面板，確保標記完成後保持結果頁開啟
+        setTimeout(() => setPanelOpen(true), 350);
       }
+    } else {
+      setPanelOpen(true);
     }
 
     showToast(`🎉 批次標記完成！成功定位 ${state.records.length} / ${total} 筆地址（已自動隱藏底圖設備標籤）`);

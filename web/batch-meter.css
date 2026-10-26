@@ -134,13 +134,28 @@
 .v2-batch-badge-item.is-blue { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
 .v2-batch-badge-item.is-amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 
+.v2-tab-pane[hidden] {
+  display: none !important;
+}
+
+.v2-tab-pane[data-pane="list"][data-panel="batch"]:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 4px;
+}
+
 .v2-batch-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
   overflow-y: auto;
-  max-height: calc(100vh - 280px);
-  min-height: 80px;
+  flex: 1;
+  min-height: 240px;
+  max-height: calc(100vh - 230px);
+  max-height: calc(100dvh - 230px);
+  padding-right: 2px;
 }
 .v2-batch-item {
   background: #f8fafc;
@@ -450,13 +465,116 @@
   color: #991b1b;
 }
 
+/* 精簡合一：統計數值與標籤開關列 (單行節省空間) */
+.v2-batch-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  min-height: 28px;
+}
+.v2-batch-stats-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+.v2-batch-stat-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.v2-batch-stat-dot.is-dp {
+  color: #065f46;
+}
+.v2-batch-stat-dot.is-grid {
+  color: #1e40af;
+}
+.v2-batch-labels-mini {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.v2-batch-btn-mini {
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+.v2-batch-btn-mini:hover {
+  border-color: #94a3b8;
+}
+.v2-batch-btn-mini.is-active {
+  background: #f0fdf4;
+  color: #047857;
+  border-color: #86efac;
+}
+.v2-batch-btn-mini.is-hidden-state {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+/* 跨裝置備份折疊手風琴 (預設收起節省手機空間) */
+.v2-batch-backup-accordion {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 4px 8px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+.v2-batch-backup-accordion[open] {
+  background: #f1f5f9;
+  border-style: solid;
+  border-color: #94a3b8;
+  padding-bottom: 6px;
+}
+.v2-batch-backup-summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+  user-select: none;
+  outline: none;
+  list-style: none;
+}
+.v2-batch-backup-summary::-webkit-details-marker {
+  display: none;
+}
+.v2-batch-backup-arrow {
+  font-size: 10px;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+.v2-batch-backup-accordion[open] .v2-batch-backup-arrow {
+  transform: rotate(180deg);
+}
+
 /* 跨裝置與備份工具列 (分組整齊對稱版) */
 .v2-batch-backup-container {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding: 6px 0;
-  border-top: 1px dashed #e2e8f0;
+  padding: 6px 0 0;
+  border-top: 1px solid #e2e8f0;
   margin-top: 6px;
 }
 .v2-batch-btn-row {
@@ -794,5 +912,25 @@
 }
 .v2-batch-filter-apply-btn:hover {
   background: #115e59;
+}
+
+/* 手機版視窗與清單高度彈性優化 (大幅提升可視筆數) */
+@media (max-width: 640px) {
+  .v2-batch-panel {
+    top: calc(50px + env(safe-area-inset-top, 0px));
+    max-height: calc(100vh - 58px);
+    max-height: calc(100dvh - 58px);
+    width: calc(100vw - 12px);
+    left: 6px;
+  }
+  .v2-batch-inner {
+    padding: 8px 8px 6px;
+    gap: 5px;
+  }
+  .v2-batch-list {
+    min-height: 280px;
+    max-height: calc(100vh - 210px);
+    max-height: calc(100dvh - 210px);
+  }
 }
 
