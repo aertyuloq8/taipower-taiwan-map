@@ -323,6 +323,7 @@
     toggleLabelsBtn: null,
     driveUploadBtn: null,
     driveRestoreBtn: null,
+    driveDeleteBtn: null,
     toBookmarksBtn: null,
     clearInputBtn: null,
     clearInputBtnTop: null,
@@ -359,6 +360,7 @@
     controls.toggleLabelsBtn = document.getElementById("batchToggleLabelsBtn");
     controls.driveUploadBtn = document.getElementById("batchDriveUploadBtn");
     controls.driveRestoreBtn = document.getElementById("batchDriveRestoreBtn");
+    controls.driveDeleteBtn = document.getElementById("batchDriveDeleteBtn");
     controls.toBookmarksBtn = document.getElementById("batchToBookmarksBtn");
     controls.downloadJsonBtn = document.getElementById("batchDownloadJsonBtn");
     controls.restoreJsonBtn = document.getElementById("batchRestoreJsonBtn");
@@ -782,13 +784,8 @@
     }
   }
 
-  // --- 本機檔案備份與讀取 (免登入、公司內網最佳、外勤手機零門檻互傳) ---
-  function downloadBatchJson() {
-    if (!state.records.length) {
-      showToast("目前沒有批次電表標記可下載！", "dup");
-      return;
-    }
-    const cleanRecords = state.records.map(r => ({
+  function getCleanRecords() {
+    return state.records.map(r => ({
       custNo: r.custNo || "",
       addr: r.addr || "",
       pole: r.pole || "",
@@ -801,6 +798,15 @@
       lng: r.lng,
       raw: r.raw || null
     }));
+  }
+
+  // --- 本機檔案備份與讀取 (免登入、公司內網最佳、外勤手機零門檻互傳) ---
+  function downloadBatchJson() {
+    if (!state.records.length) {
+      showToast("目前沒有批次電表標記可下載！", "dup");
+      return;
+    }
+    const cleanRecords = getCleanRecords();
     const jsonStr = JSON.stringify(cleanRecords, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
     const now = new Date();
@@ -853,13 +859,16 @@
     reader.readAsText(file, "utf-8");
   }
 
-  // --- Google Drive 備份與還原 ---
+  // --- Google Drive 備份、還原與刪除 (獨立批次電表清單) ---
+  window.__getBatchRecords = () => getCleanRecords();
+
   function uploadBatchToDrive() {
     if (!state.records.length) {
       showToast("目前沒有批次電表標記可上傳！", "dup");
       return;
     }
-    localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records));
+    const clean = getCleanRecords();
+    localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(clean));
     if (window.__bookmarkDrive) {
       window.__bookmarkDrive.upload("batch");
     } else {
@@ -870,6 +879,14 @@
   function restoreBatchFromDrive() {
     if (window.__bookmarkDrive) {
       window.__bookmarkDrive.restore("batch");
+    } else {
+      showToast("Google Drive 模組尚未就緒，請稍候重試", "error");
+    }
+  }
+
+  function deleteBatchFromDrive() {
+    if (window.__bookmarkDrive) {
+      window.__bookmarkDrive.deleteCloud("batch");
     } else {
       showToast("Google Drive 模組尚未就緒，請稍候重試", "error");
     }
@@ -1028,6 +1045,7 @@
     // 雲端備份與門牌收藏
     controls.driveUploadBtn?.addEventListener("click", uploadBatchToDrive);
     controls.driveRestoreBtn?.addEventListener("click", restoreBatchFromDrive);
+    controls.driveDeleteBtn?.addEventListener("click", deleteBatchFromDrive);
     controls.toBookmarksBtn?.addEventListener("click", saveToAddressBookmarks);
 
     syncBgLabelsBtnWithMap();

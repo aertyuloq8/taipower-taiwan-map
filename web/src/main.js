@@ -5015,18 +5015,7 @@ window.__appBooted = true;
           records: archiveRecords,
         }, null, 2);
         await addArchiveFile(manifestFiles, archiveFiles, "records.json", recordsJson, "application/json");
-        try {
-          let cadastreBM = [], addressBM = [];
-          if (window.__bookmarkDB) {
-            try { cadastreBM = await window.__bookmarkDB.loadBookmarks("cadastre") || []; } catch {}
-            try { addressBM = await window.__bookmarkDB.loadBookmarks("address") || []; } catch {}
-          } else {
-            cadastreBM = JSON.parse(localStorage.getItem("tp_cadastre_bookmarks_v1") || "[]");
-            addressBM = JSON.parse(localStorage.getItem("tp_address_bookmarks_v1") || "[]");
-          }
-          await addArchiveFile(manifestFiles, archiveFiles, "cadastre-bookmarks.json", JSON.stringify(cadastreBM, null, 2), "application/json");
-          await addArchiveFile(manifestFiles, archiveFiles, "address-bookmarks.json", JSON.stringify(addressBM, null, 2), "application/json");
-        } catch {}
+
         await addArchiveFile(manifestFiles, archiveFiles, INSPECTION_CARD_FILE, createInspectionCardHtml(inspectionCards, folders), "text/html");
         inspectionCards.forEach(card => {
           cardFiles.push({ path: card.cardPath, data: createInspectionCardDetailHtml(card) });
@@ -5367,6 +5356,9 @@ window.__appBooted = true;
           else if (resume.type === "restore") driveRestoreAction();
           else if (resume.type === "delete") driveDeleteAction();
           else if (resume.type === "export") resumeDriveExport(resume);
+          else if (resume.type === "bookmark_upload") bookmarkDrive.upload(resume.subType);
+          else if (resume.type === "bookmark_restore") bookmarkDrive.restore(resume.subType);
+          else if (resume.type === "bookmark_delete") bookmarkDrive.deleteCloud(resume.subType);
           else GlobalModal.alert("Google 登入完成，請再按一次原本的功能。");
         };
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
@@ -5533,7 +5525,7 @@ window.__appBooted = true;
         });
       }
       async function listDriveBackups() {
-        const query = encodeURIComponent("(name contains '設備地圖備份' or name contains '批次匯出' or name contains '巡視紀錄') and trashed = false");
+        const query = encodeURIComponent("(name contains '巡檢紀錄備份' or name contains '設備地圖備份' or name contains '巡視紀錄') and not (name contains '收藏_' or name contains '批次') and trashed = false");
         const resp = await driveFetch(
           "https://www.googleapis.com/drive/v3/files?q=" + query +
           "&orderBy=createdTime desc&pageSize=20&fields=files(id,name,size,createdTime,description)"
@@ -5563,7 +5555,7 @@ window.__appBooted = true;
       function driveBackupFileName() {
         const now = new Date();
         const pad = (n) => String(n).padStart(2, "0");
-        return "設備地圖備份_" + now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+        return "巡檢紀錄備份_" + now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
           "_" + pad(now.getHours()) + pad(now.getMinutes()) + ".zip";
       }
       async function driveBackupAction() {
@@ -5596,22 +5588,12 @@ window.__appBooted = true;
           button.textContent = "☁️ 上傳中（" + formatStorageBytes(archive.blob.size) + "）";
           backupProgressUpdate(62, "上傳中（" + formatStorageBytes(archive.blob.size) + "）…");
           const fileName = driveBackupFileName();
-          let cadastreBM = [], addressBM = [];
-          if (window.__bookmarkDB) {
-            try { cadastreBM = await window.__bookmarkDB.loadBookmarks("cadastre") || []; } catch {}
-            try { addressBM = await window.__bookmarkDB.loadBookmarks("address") || []; } catch {}
-          } else {
-            const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1" };
-            cadastreBM = JSON.parse(localStorage.getItem(lsKeys.cadastre) || "[]");
-            addressBM = JSON.parse(localStorage.getItem(lsKeys.address) || "[]");
-          }
           await uploadZipToDrive(archive.blob, fileName, (pct) => backupProgressUpdate(62 + Math.round(pct * 0.36), "上傳 " + pct + "%…"), "application/zip",
             driveContentDescription([
               `資料夾${state.folders.length}個`,
               `紀錄${state.records.length}筆`,
               `照片${archive.photoCount}張`,
               profileLabel,
-              (cadastreBM.length + addressBM.length > 0) ? `收藏${cadastreBM.length}地籍${addressBM.length}門牌` : "",
               note ? `備註：${note}` : "",
             ]));
           backupProgressUpdate(100, "完成");
@@ -5625,10 +5607,9 @@ window.__appBooted = true;
             formatVersion: BACKUP_FORMAT_VERSION,
             manifestHash: archive.manifestHash,
           });
-          const bmInfo = (cadastreBM.length + addressBM.length > 0) ? "<br>收藏：" + cadastreBM.length + " 筆地籍、" + addressBM.length + " 筆門牌" : "";
-          GlobalModal.alert("已備份到個人 Google 雲端硬碟：<strong>" + escapeHtml(fileName) + "</strong><br>" +
-            state.records.length + " 筆紀錄、" + archive.photoCount + " 張照片（" + profileLabel + "，" + formatStorageBytes(archive.blob.size) + "）。" + bmInfo + "<br>" +
-            "其他裝置可在「☁️ 從 Drive 還原」選取此檔。<small>備份檔未加密，請勿放入機密照片。</small>");
+          GlobalModal.alert("已備份巡檢紀錄與照片至個人 Google 雲端硬碟：<strong>" + escapeHtml(fileName) + "</strong><br>" +
+            state.records.length + " 筆巡檢紀錄、" + archive.photoCount + " 張照片（" + profileLabel + "，" + formatStorageBytes(archive.blob.size) + "）。<br>" +
+            "其他裝置可在巡檢面板「☁️ 從 Drive 還原」選取此檔。<br><small style='color:#64748b;'>備份檔未加密，請勿放入機密照片。地籍與門牌收藏各有其專屬雲端備份，不受影響。</small>");
         } catch (error) {
           console.error("Drive 備份失敗：", error);
           if (!/已取消/.test(error.message)) GlobalModal.alert("Drive 備份失敗：" + error.message);
@@ -5672,7 +5653,7 @@ window.__appBooted = true;
           };
           const pickedId = await new Promise(resolve => {
             GlobalModal.show({
-              title: "選擇雲端備份",
+              title: "☁️ 選擇雲端巡檢紀錄備份",
               content: rows + '<div style="margin-top:8px; font-size:12px; color:#64748b;">ZIP 備份可下載並還原；「僅下載檔案」可將任何雲端檔案（ZIP 或 Excel）存到本機。</div>' +
                 '<button type="button" style="margin-top:8px; width:100%; padding:6px 8px; border:1px solid #cbd5e1; border-radius:5px; background:#fff; color:#334155; font-size:12px; cursor:pointer;" onclick="window.__v2DriveDownloadOnly()">⬇️ 僅下載檔案（不還原）</button>',
               type: "confirm",
@@ -5773,7 +5754,7 @@ window.__appBooted = true;
           const rows = driveBackupRows(files, true);
           const pickedIds = await new Promise(resolve => {
             GlobalModal.show({
-              title: "選擇要刪除的雲端備份",
+              title: "🗑 選擇要刪除的雲端巡檢備份",
               content: rows + '<div style="margin-top:8px; font-size:12px; color:#64748b;">可勾選多個備份一次刪除，刪除後無法從雲端還原，本機資料不受影響。</div>',
               type: "confirm",
               confirmText: "刪除",
@@ -5787,7 +5768,6 @@ window.__appBooted = true;
           });
           if (!pickedIds.length) {
             backupProgressHide();
-            GlobalModal.alert("未勾選任何備份。");
             return;
           }
           const pickedList = files.filter((f) => pickedIds.includes(f.id));
@@ -5822,72 +5802,194 @@ window.__appBooted = true;
         await runSystemBackup("");
       }
 
-      // --- Bookmark Drive Sync ---
+      // --- 完全獨立之模組化 Google Drive 同步管理器 (地籍 / 門牌 / 批次電表 100% 解耦) ---
+      function getBookmarkModuleConfig(type) {
+        if (type === "cadastre") {
+          return {
+            type: "cadastre",
+            label: "地籍收藏",
+            prefix: "地籍收藏備份_",
+            altPrefix: "設備地圖收藏_地籍_",
+            lsKey: "tp_cadastre_bookmarks_v1",
+            restoreEvent: "cadastreBookmarksRestored",
+            dbType: "cadastre"
+          };
+        }
+        if (type === "address") {
+          return {
+            type: "address",
+            label: "門牌收藏",
+            prefix: "門牌收藏備份_",
+            altPrefix: "設備地圖收藏_門牌_",
+            lsKey: "tp_address_bookmarks_v1",
+            restoreEvent: "addressBookmarksRestored",
+            dbType: "address"
+          };
+        }
+        if (type === "batch") {
+          return {
+            type: "batch",
+            label: "批次電表清單",
+            prefix: "批次電表清單備份_",
+            altPrefix: "設備地圖收藏_批次電表_",
+            lsKey: "tp_batch_meter_bookmarks_v1",
+            restoreEvent: "batchMetersRestored",
+            dbType: null
+          };
+        }
+        return {
+          type,
+          label: "收藏資料",
+          prefix: `收藏備份_${type}_`,
+          altPrefix: `設備地圖收藏_${type}_`,
+          lsKey: `tp_${type}_bookmarks_v1`,
+          restoreEvent: "bookmarksRestored",
+          dbType: null
+        };
+      }
+
+      function getBookmarkModuleButton(type, action) {
+        if (type === "cadastre") {
+          if (action === "upload") return document.getElementById("v2CadastreDriveUpload");
+          if (action === "restore") return document.getElementById("v2CadastreDriveRestore");
+          if (action === "delete") return document.getElementById("v2CadastreDriveDelete");
+        }
+        if (type === "address") {
+          if (action === "upload") return document.getElementById("v2AddressDriveUpload");
+          if (action === "restore") return document.getElementById("v2AddressDriveRestore");
+          if (action === "delete") return document.getElementById("v2AddressDriveDelete");
+        }
+        if (type === "batch") {
+          if (action === "upload") return document.getElementById("batchDriveUploadBtn");
+          if (action === "restore") return document.getElementById("batchDriveRestoreBtn");
+          if (action === "delete") return document.getElementById("batchDriveDeleteBtn");
+        }
+        return null;
+      }
+
       const bookmarkDrive = {
         async upload(type) {
-          const label = type === "cadastre" ? "地籍" : type === "batch" ? "批次電表" : "門牌";
-          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1", batch: "tp_batch_meter_bookmarks_v1" };
-          const key = lsKeys[type];
-          let bookmarks;
-          try {
-            bookmarks = JSON.parse(localStorage.getItem(key) || "[]");
-          } catch { bookmarks = []; }
-          if (!bookmarks.length) { GlobalModal.alert("目前沒有" + label + "可上傳。"); return; }
-          const blob = new Blob([JSON.stringify(bookmarks, null, 2)], { type: "application/json" });
-          const dateStr = new Date().toISOString().slice(0, 10);
-          const fileName = `設備地圖收藏_${label}_${dateStr}.json`;
-          try {
-            clearDriveAccessToken();
-            await getDriveAccessToken();
-          } catch (e) {
-            if (e.message.includes("已取消")) return;
-            GlobalModal.alert("Google 登入失敗：" + e.message);
+          const cfg = getBookmarkModuleConfig(type);
+          const button = getBookmarkModuleButton(type, "upload");
+          const originalText = button ? button.textContent : "";
+          if (button) { button.disabled = true; button.textContent = "☁️ 登入 Google 中"; }
+
+          window.__v2DriveResume = { type: "bookmark_upload", subType: type };
+
+          let bookmarks = [];
+          if (type === "batch") {
+            if (window.__getBatchRecords) bookmarks = window.__getBatchRecords() || [];
+            if (!bookmarks.length) {
+              try { bookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
+            }
+            bookmarks = bookmarks.map(r => ({
+              custNo: r.custNo || "",
+              addr: r.addr || "",
+              pole: r.pole || "",
+              code: r.code || "",
+              meterNo: r.meterNo || "",
+              inspectTerm: r.inspectTerm || "",
+              locType: r.locType || "grid",
+              locLabel: r.locLabel || "",
+              lat: r.lat,
+              lng: r.lng,
+              raw: r.raw || null
+            }));
+          } else {
+            if (window.__bookmarkDB) {
+              try { bookmarks = await window.__bookmarkDB.loadBookmarks(type) || []; } catch {}
+            }
+            if (!bookmarks.length) {
+              try { bookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
+            }
+          }
+
+          if (!bookmarks.length) {
+            if (button) { button.disabled = false; button.textContent = originalText; }
+            GlobalModal.alert(`目前沒有「${cfg.label}」資料可上傳。請先進行標記或收藏。`);
             return;
           }
+
           try {
-            await uploadZipToDrive(blob, fileName, null, "application/json");
-            GlobalModal.alert(`已上傳${label}（${bookmarks.length} 筆）到雲端硬碟：<strong>${fileName}</strong>`);
+            const token = await getDriveAccessToken();
+            if (button) button.textContent = "☁️ 上傳中…";
+
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, "0");
+            const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+            const fileName = `${cfg.prefix}${timeStr}.json`;
+            const blob = new Blob([JSON.stringify(bookmarks, null, 2)], { type: "application/json" });
+            const description = `${cfg.label} ${bookmarks.length} 筆 · 上傳於 ${now.toLocaleString("zh-TW")}`;
+
+            await uploadZipToDrive(blob, fileName, null, "application/json", description);
+
+            GlobalModal.alert(`已成功上傳「${cfg.label}」（共 <strong>${bookmarks.length}</strong> 筆）至個人 Google 雲端硬碟：<br><br><strong>${escapeHtml(fileName)}</strong>`);
           } catch (e) {
-            GlobalModal.alert(label + "上傳失敗：" + e.message);
+            console.error(`${cfg.label} 上傳失敗：`, e);
+            if (!e.message.includes("已取消")) {
+              GlobalModal.alert(`${cfg.label} 上傳失敗：${e.message}`);
+            }
+          } finally {
+            clearDriveAccessToken();
+            if (button) { button.disabled = false; button.textContent = originalText; }
           }
         },
+
         async restore(type) {
-          const label = type === "cadastre" ? "地籍" : type === "batch" ? "批次電表" : "門牌";
-          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1", batch: "tp_batch_meter_bookmarks_v1" };
-          const key = lsKeys[type];
+          const cfg = getBookmarkModuleConfig(type);
+          const button = getBookmarkModuleButton(type, "restore");
+          const originalText = button ? button.textContent : "";
+          if (button) { button.disabled = true; button.textContent = "☁️ 讀取雲端中"; }
+
+          window.__v2DriveResume = { type: "bookmark_restore", subType: type };
+
           try {
-            clearDriveAccessToken();
             await getDriveAccessToken();
-          } catch (e) {
-            if (e.message.includes("已取消")) return;
-            GlobalModal.alert("Google 登入失敗：" + e.message);
-            return;
-          }
-          try {
-            const query = encodeURIComponent(`name contains '設備地圖收藏_${label}_' and trashed = false`);
+
+            const query = encodeURIComponent(`(name contains '${cfg.prefix}' or name contains '${cfg.altPrefix}') and trashed = false`);
             const resp = await driveFetch(
               "https://www.googleapis.com/drive/v3/files?q=" + query +
-              "&orderBy=createdTime desc&pageSize=20&fields=files(id,name,size,createdTime)"
+              "&orderBy=createdTime desc&pageSize=30&fields=files(id,name,size,createdTime,description)"
             );
             const files = (await resp.json()).files || [];
-            if (!files.length) { GlobalModal.alert("雲端硬碟沒有" + label + "收藏備份。"); return; }
+
+            if (!files.length) {
+              GlobalModal.alert(`個人 Google 雲端硬碟目前沒有「${cfg.label}」專屬備份檔。<br><small style="color:#64748b;">（搜尋字首：${cfg.prefix}）</small>`);
+              return;
+            }
+
             let currentBookmarks = [];
-            try { currentBookmarks = JSON.parse(localStorage.getItem(key) || "[]"); } catch { /* ignore */ }
-            // Step 1: select backup file
-            const fileRows = files.map((f, i) =>
-              '<label style="display:block; padding:6px 4px; border-bottom:1px solid #e2e8f0; cursor:pointer;">' +
-              '<input type="radio" name="bookmarkRestorePick" value="' + f.id + '"' + (i === 0 ? " checked" : "") + "> " +
-              "<strong>" + escapeHtml(f.name) + "</strong><br>" +
-              '<span style="font-size:12px; color:#64748b; margin-left:20px;">' +
-              (f.createdTime ? new Date(f.createdTime).toLocaleString("zh-TW") : "") +
-              (f.size ? " · " + formatStorageBytes(Number(f.size)) : "") + "</span></label>"
-            ).join("");
+            if (type === "batch") {
+              if (window.__getBatchRecords) currentBookmarks = window.__getBatchRecords() || [];
+              if (!currentBookmarks.length) {
+                try { currentBookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
+              }
+            } else {
+              if (window.__bookmarkDB) {
+                try { currentBookmarks = await window.__bookmarkDB.loadBookmarks(type) || []; } catch {}
+              }
+              if (!currentBookmarks.length) {
+                try { currentBookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
+              }
+            }
+
+            const fileRows = files.map((f, i) => {
+              const desc = f.description ? `<br><span style="color:#0f766e;font-size:11px;">📋 ${escapeHtml(f.description)}</span>` : "";
+              return '<label style="display:block; padding:8px 4px; border-bottom:1px solid #e2e8f0; cursor:pointer;">' +
+                '<input type="radio" name="bookmarkRestorePick" value="' + f.id + '"' + (i === 0 ? " checked" : "") + '> ' +
+                '<strong>' + escapeHtml(f.name) + '</strong><br>' +
+                '<span style="font-size:12px; color:#64748b; margin-left:20px;">' +
+                (f.createdTime ? new Date(f.createdTime).toLocaleString("zh-TW") : "") +
+                (f.size ? " · " + formatStorageBytes(Number(f.size)) : "") + desc +
+                '</span></label>';
+            }).join("");
+
             const pickedId = await new Promise(resolve => {
               GlobalModal.show({
-                title: "⬇️ 還原" + label + "收藏",
-                content: "選擇要還原的備份（目前已有 <strong>" + currentBookmarks.length + "</strong> 筆）：<br><br>" + fileRows,
+                title: `☁️ 選擇雲端「${cfg.label}」備份`,
+                content: `<div style="font-size:13px; color:#334155; margin-bottom:8px;">本機目前已有 <strong>${currentBookmarks.length}</strong> 筆「${cfg.label}」。請選擇要還原的檔案：</div>` + fileRows,
                 type: "confirm",
-                confirmText: "還原",
+                confirmText: "下載並還原",
                 cancelText: "取消",
                 onConfirm: () => {
                   const checked = document.querySelector('input[name="bookmarkRestorePick"]:checked');
@@ -5896,41 +5998,53 @@ window.__appBooted = true;
                 onCancel: () => resolve(""),
               });
             });
+
             if (!pickedId) return;
-            // Download selected file
-            const file = files.find(f => f.id === pickedId);
-            if (!file) return;
-            const downloadResp = await driveFetch(
-              "https://www.googleapis.com/drive/v3/files/" + pickedId + "?alt=media"
-            );
+
+            if (button) button.textContent = "⬇️ 下載中…";
+            const downloadResp = await driveFetch("https://www.googleapis.com/drive/v3/files/" + pickedId + "?alt=media");
             const text = await downloadResp.text();
             let downloaded;
-            try { downloaded = JSON.parse(text); } catch { GlobalModal.alert("檔案格式錯誤，無法解析。"); return; }
-            if (!Array.isArray(downloaded)) { GlobalModal.alert("檔案格式錯誤：不是 JSON 陣列。"); return; }
-            if (downloaded.length === 0) { GlobalModal.alert("備份檔案為空（0 筆）。"); return; }
-            // Step 2: choose merge or replace (if local data exists)
-            let mergedBookmarks;
+            try { downloaded = JSON.parse(text); } catch {
+              GlobalModal.alert("備份檔案格式錯誤，無法解析。");
+              return;
+            }
+            if (!Array.isArray(downloaded)) {
+              GlobalModal.alert("備份檔案格式不符（需為項目清單）。");
+              return;
+            }
+            if (!downloaded.length) {
+              GlobalModal.alert("此雲端備份檔案為空（0 筆）。");
+              return;
+            }
+
+            let mergedBookmarks = [];
             let bookmarkAdded = 0;
             let bookmarkMode = "replace";
-            if (currentBookmarks.length) {
+
+            if (currentBookmarks.length > 0) {
               const mode = await new Promise(resolve => {
                 GlobalModal.show({
-                  title: "還原方式",
-                  content: "備份有 <strong>" + downloaded.length + "</strong> 筆，目前已有 <strong>" + currentBookmarks.length + "</strong> 筆。選擇還原方式：",
+                  title: "選擇還原方式",
+                  content: `雲端備份有 <strong>${downloaded.length}</strong> 筆，本機目前已有 <strong>${currentBookmarks.length}</strong> 筆「${cfg.label}」。選擇還原方式：`,
                   type: "confirm",
                   confirmText: "合併到現有",
-                  cancelText: "完全取代現有",
+                  cancelText: "完全取代覆蓋",
                   onConfirm: () => resolve("merge"),
                   onCancel: () => resolve("replace"),
                 });
               });
+
               if (mode === "replace") {
                 mergedBookmarks = downloaded;
                 bookmarkAdded = downloaded.length;
               } else {
                 bookmarkMode = "merge";
-                const existIds = new Set(currentBookmarks.map(b => b.id || b.address || JSON.stringify(b)));
-                const newItems = downloaded.filter(b => !existIds.has(b.id || b.address || JSON.stringify(b)));
+                const existKeys = new Set(currentBookmarks.map(b => b.id || b.custNo || b.number || b.address || b.addr || JSON.stringify(b)));
+                const newItems = downloaded.filter(b => {
+                  const k = b.id || b.custNo || b.number || b.address || b.addr || JSON.stringify(b);
+                  return !existKeys.has(k);
+                });
                 bookmarkAdded = newItems.length;
                 mergedBookmarks = [...currentBookmarks, ...newItems];
               }
@@ -5938,83 +6052,105 @@ window.__appBooted = true;
               mergedBookmarks = downloaded;
               bookmarkAdded = downloaded.length;
             }
-            localStorage.setItem(key, JSON.stringify(mergedBookmarks));
-            if (window.__bookmarkDB) {
-              try { await window.__bookmarkDB.saveBookmarks(type, mergedBookmarks); } catch { /* ignore */ }
+
+            localStorage.setItem(cfg.lsKey, JSON.stringify(mergedBookmarks));
+            if (cfg.dbType && window.__bookmarkDB) {
+              try { await window.__bookmarkDB.saveBookmarks(cfg.dbType, mergedBookmarks); } catch {}
             }
+
+            window.dispatchEvent(new CustomEvent(cfg.restoreEvent, { detail: { count: mergedBookmarks.length } }));
             window.dispatchEvent(new CustomEvent("bookmarksRestored"));
-            if (type === "batch") {
-              window.dispatchEvent(new CustomEvent("batchMetersRestored"));
-            }
-            GlobalModal.alert(`已還原${label}：備份 ${downloaded.length} 筆，` +
-              (bookmarkMode === "merge"
-                ? `新增 ${bookmarkAdded} 筆（原有 ${currentBookmarks.length} 筆）`
-                : `已取代原有 ${currentBookmarks.length} 筆`) +
-              `，共 ${mergedBookmarks.length} 筆。`);
+
+            GlobalModal.alert(`已成功還原「${cfg.label}」！<br>雲端備份共 <strong>${downloaded.length}</strong> 筆，` +
+              (bookmarkMode === "merge" ? `新增 <strong>${bookmarkAdded}</strong> 筆，本機現有共 <strong>${mergedBookmarks.length}</strong> 筆。` : `已完全取代覆蓋本機資料，共 <strong>${mergedBookmarks.length}</strong> 筆。`) +
+              `<br><small style="color:#0f766e;">（此操作完全專屬於${cfg.label}，其餘模組資料不受影響）</small>`);
           } catch (e) {
-            GlobalModal.alert(label + "還原失敗：" + e.message);
+            console.error(`${cfg.label} 還原失敗：`, e);
+            if (!e.message.includes("已取消")) {
+              GlobalModal.alert(`${cfg.label} 還原失敗：${e.message}`);
+            }
+          } finally {
+            clearDriveAccessToken();
+            if (button) { button.disabled = false; button.textContent = originalText; }
           }
         },
+
         async deleteCloud(type) {
-          const label = type === "cadastre" ? "地籍" : type === "batch" ? "批次電表" : "門牌";
+          const cfg = getBookmarkModuleConfig(type);
+          const button = getBookmarkModuleButton(type, "delete");
+          const originalText = button ? button.textContent : "";
+          if (button) { button.disabled = true; button.textContent = "☁️ 讀取雲端中"; }
+
+          window.__v2DriveResume = { type: "bookmark_delete", subType: type };
+
           try {
-            clearDriveAccessToken();
             await getDriveAccessToken();
-          } catch (e) {
-            if (e.message.includes("已取消")) return;
-            GlobalModal.alert("Google 登入失敗：" + e.message);
-            return;
-          }
-          try {
-            const query = encodeURIComponent(`name contains '設備地圖收藏_${label}_' and trashed = false`);
+
+            const query = encodeURIComponent(`(name contains '${cfg.prefix}' or name contains '${cfg.altPrefix}') and trashed = false`);
             const resp = await driveFetch(
               "https://www.googleapis.com/drive/v3/files?q=" + query +
-              "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,size,createdTime)"
+              "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,size,createdTime,description)"
             );
             const files = (await resp.json()).files || [];
-            if (!files.length) { GlobalModal.alert("雲端硬碟沒有" + label + "收藏備份。"); return; }
-            const rows = files.map((f, i) =>
-              '<label style="display:block; padding:6px 4px; border-bottom:1px solid #e2e8f0; cursor:pointer;">' +
-              '<input type="checkbox" name="bookmarkDrivePick" value="' + f.id + '"> ' +
-              "<strong>" + escapeHtml(f.name) + "</strong><br>" +
-              '<span style="font-size:12px; color:#64748b; margin-left:20px;">' +
-              (f.createdTime ? new Date(f.createdTime).toLocaleString("zh-TW") : "") +
-              (f.size ? " · " + formatStorageBytes(Number(f.size)) : "") + "</span></label>"
-            ).join("");
+
+            if (!files.length) {
+              GlobalModal.alert(`個人 Google 雲端硬碟目前沒有「${cfg.label}」專屬備份檔。`);
+              return;
+            }
+
+            const rows = files.map((f) => {
+              const desc = f.description ? `<br><span style="color:#0f766e;font-size:11px;">📋 ${escapeHtml(f.description)}</span>` : "";
+              return '<label style="display:block; padding:8px 4px; border-bottom:1px solid #e2e8f0; cursor:pointer;">' +
+                '<input type="checkbox" name="bookmarkDriveDeletePick" value="' + f.id + '"> ' +
+                '<strong>' + escapeHtml(f.name) + '</strong><br>' +
+                '<span style="font-size:12px; color:#64748b; margin-left:20px;">' +
+                (f.createdTime ? new Date(f.createdTime).toLocaleString("zh-TW") : "") +
+                (f.size ? " · " + formatStorageBytes(Number(f.size)) : "") + desc +
+                '</span></label>';
+            }).join("");
+
             const pickedIds = await new Promise(resolve => {
               GlobalModal.show({
-                title: "選擇要刪除的雲端" + label + "備份",
-                content: rows + '<div style="margin-top:8px; font-size:12px; color:#64748b;">可勾選多個備份一次刪除，刪除後無法從雲端還原，本機資料不受影響。</div>',
+                title: `🗑 選擇要刪除的雲端「${cfg.label}」備份`,
+                content: rows + `<div style="margin-top:8px; font-size:12px; color:#64748b;">可勾選多個備份一次刪除。刪除後無法自雲端還原，本機「${cfg.label}」不受任何影響。</div>`,
                 type: "confirm",
-                confirmText: "刪除",
+                confirmText: "刪除所選備份",
                 cancelText: "取消",
                 onConfirm: () => {
-                  const checked = [...document.querySelectorAll('input[name="bookmarkDrivePick"]:checked')];
+                  const checked = [...document.querySelectorAll('input[name="bookmarkDriveDeletePick"]:checked')];
                   resolve(checked.map(c => c.value));
                 },
                 onCancel: () => resolve([]),
               });
             });
-            if (!pickedIds.length) { GlobalModal.alert("未勾選任何備份。"); return; }
-            const pickedList = files.filter(f => pickedIds.includes(f.id));
+
+            if (!pickedIds.length) return;
+
             const confirmed = await new Promise(resolve => {
               GlobalModal.confirm(
-                "確定刪除所選的 <strong>" + pickedList.length + "</strong> 個" + label + "備份？<br>此操作無法復原（本機資料不受影響）。",
+                `確定刪除所選的 <strong>${pickedIds.length}</strong> 個「${cfg.label}」雲端備份？<br>此操作無法復原（本機資料不受影響）。`,
                 () => resolve(true),
                 () => resolve(false)
               );
             });
             if (!confirmed) return;
+
             let deleted = 0;
-            for (const f of pickedList) {
+            for (const id of pickedIds) {
               try {
-                await driveFetch("https://www.googleapis.com/drive/v3/files/" + f.id, { method: "DELETE" });
+                await driveFetch("https://www.googleapis.com/drive/v3/files/" + id, { method: "DELETE" });
                 deleted++;
-              } catch { /* skip failed */ }
+              } catch {}
             }
-            GlobalModal.alert("已刪除 " + deleted + " / " + pickedList.length + " 個雲端" + label + "備份。");
+            GlobalModal.alert(`已成功刪除 <strong>${deleted}</strong> 個雲端「${cfg.label}」備份。`);
           } catch (e) {
-            GlobalModal.alert("查詢雲端備份失敗：" + e.message);
+            console.error(`${cfg.label} 刪除失敗：`, e);
+            if (!e.message.includes("已取消")) {
+              GlobalModal.alert(`刪除「${cfg.label}」雲端備份失敗：${e.message}`);
+            }
+          } finally {
+            clearDriveAccessToken();
+            if (button) { button.disabled = false; button.textContent = originalText; }
           }
         }
       };
@@ -6073,20 +6209,7 @@ window.__appBooted = true;
       async function restoreBackupData(parsed, photoEntries = [], replacePhotos = true, extra = {}) {
         if (!parsed || !Array.isArray(parsed.folders) || !Array.isArray(parsed.records)) throw new Error("備份格式錯誤");
         if (replacePhotos) await replacePhotoStore(photoEntries);
-        // Restore bookmarks if present in backup (optional, not in old backups)
-        try {
-          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1" };
-          if (Array.isArray(extra.cadastreBookmarks)) {
-            localStorage.setItem(lsKeys.cadastre, JSON.stringify(extra.cadastreBookmarks));
-            if (window.__bookmarkDB) await window.__bookmarkDB.saveBookmarks("cadastre", extra.cadastreBookmarks);
-          }
-          if (Array.isArray(extra.addressBookmarks)) {
-            localStorage.setItem(lsKeys.address, JSON.stringify(extra.addressBookmarks));
-            if (window.__bookmarkDB) await window.__bookmarkDB.saveBookmarks("address", extra.addressBookmarks);
-          }
-          // Try to refresh bookmark UIs if already loaded
-          try { window.dispatchEvent(new CustomEvent("bookmarksRestored")); } catch {}
-        } catch {}
+
         state.folders = parsed.folders;
         state.records = parsed.records;
         state.lastFolderId = state.records.length > 0 ? state.records[state.records.length - 1].folderId : null;
@@ -6169,26 +6292,7 @@ window.__appBooted = true;
         refreshStorageStatus();
         const folderSelect = document.getElementById("sidebar-folder");
         if (folderSelect) folderSelect.innerHTML = getFolderOptionsHtml(state.lastFolderId);
-        // Merge bookmarks
-        let bookmarksAdded = 0;
-        const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1" };
-        for (const [bmType, bmKey] of [["cadastreBookmarks", lsKeys.cadastre], ["addressBookmarks", lsKeys.address]]) {
-          const remoteBm = imported[bmType];
-          if (!Array.isArray(remoteBm) || !remoteBm.length) continue;
-          let localBm = [];
-          try { localBm = JSON.parse(localStorage.getItem(bmKey) || "[]"); } catch {}
-          const localIds = new Set(localBm.map(b => b.id || b.address || JSON.stringify(b)));
-          const newBm = remoteBm.filter(b => !localIds.has(b.id || b.address || JSON.stringify(b)));
-          if (newBm.length) {
-            localBm.push(...newBm);
-            bookmarksAdded += newBm.length;
-            localStorage.setItem(bmKey, JSON.stringify(localBm));
-            const bmTypeShort = bmKey.includes("cadastre") ? "cadastre" : "address";
-            if (window.__bookmarkDB) await window.__bookmarkDB.saveBookmarks(bmTypeShort, localBm);
-          }
-        }
-        if (bookmarksAdded) window.dispatchEvent(new CustomEvent("bookmarksRestored"));
-        return { folderCount: newFolders.length, recordCount: newRecords.length, photoMergedRecords, photoAdded, photoSkipped, bookmarksAdded };
+        return { folderCount: newFolders.length, recordCount: newRecords.length, photoMergedRecords, photoAdded, photoSkipped, bookmarksAdded: 0 };
       }
 
       async function verifyZipManifest(zip, manifest) {
@@ -6313,9 +6417,7 @@ window.__appBooted = true;
           ? "<br><strong style='color:#b91c1c'>警告：照片預估容量超過目前可用空間，請先清理或改用高畫質版備份。</strong>"
           : "";
         const photoProfile = summary.profile === "compressed" ? "高畫質版" : summary.profile === "original" ? "原圖" : "未標示";
-        const bmPreview = (imported.cadastreBookmarks?.length || imported.addressBookmarks?.length)
-          ? `<br>收藏：${imported.cadastreBookmarks?.length || 0} 筆地籍、${imported.addressBookmarks?.length || 0} 筆門牌`
-          : "";
+        const bmPreview = "";
         GlobalModal.show({
           title: "還原前資料預覽",
           content: `<strong>${escapeHtml(fileName)}</strong><br><br>
