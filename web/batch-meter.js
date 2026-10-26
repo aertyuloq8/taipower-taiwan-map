@@ -1,11 +1,19 @@
 /**
- * 批次電表清單標記 (Batch Meter Marker Module)
- * 專為台電抄表、換表、抽查、檢修清單打造的極速批次定位工具
+ * 批次電表清單標記模組 (Batch Meter Marker Module)
+ * 專為台電抄表、換表、抽查、巡檢等任務打造之高階批次定位工具
  *
- * 核心規則：
- * 1. 有路名門牌地址 ➔ 自動以電子門牌 (NLSC) 精準定位至用戶住家
- * 2. 是地號（段/小段/農電/無路名） ➔ 自動以圖號座標秒級反推至現場掛表桿位
- * 3. 門牌查無保底 ➔ 自動轉用圖號座標補全定位，確保 100% 都有定位點
+ * 核心功能：
+ * 1. 智慧分流：
+ *    - 有路名門牌地址 ➔ 國土測繪 (NLSC) 電子門牌定位用戶住家
+ *    - 地號地址（段/小段/號）➔ 台電 CPS 圖號座標秒級反推現場電桿
+ *    - 門牌查無結果 ➔ 自動由圖號座標保底定位，確保 100% 定位
+ * 2. 視野淨化與醒目標註：
+ *    - 自動隱藏雜亂之背景電桿文字標籤，突顯批次解析之電表標記
+ *    - 每顆電表浮動顯示專屬清晰標籤（#1 地址/電號/桿名）
+ * 3. 電腦到手機無縫轉移：
+ *    - 📱 產生 QR Code：手機相機一掃秒開，免登入免傳檔立即開始導航
+ *    - ☁️ Google Drive 雲端同步：支援上傳至 Drive 與從 Drive 還原
+ *    - ⭐ 轉存門牌收藏：一鍵併入現有門牌收藏體系
  */
 (() => {
   "use strict";
@@ -23,7 +31,7 @@
     });
     document.body.appendChild(el);
     requestAnimationFrame(() => { el.style.opacity = "1"; });
-    setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 2200);
+    setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 2400);
   }
 
   function escapeHtml(v) {
@@ -67,7 +75,7 @@
     return false;
   }
 
-  // 電子門牌經緯度查詢（支援 Adapter 與 GAS JSONP 雙通道，跨域零障礙）
+  // 電子門牌經緯度查詢（支援 Adapter 與 GAS JSONP 雙通道）
   function gasJsonpDoorplate(addr) {
     return new Promise((resolve) => {
       const gasBase = String(window.CADASTRE_GAS_URL || "").trim();
@@ -109,12 +117,10 @@
             }
           }
         }
-      } catch (e) {
-        // 後端若無回應則平滑降級至 JSONP
-      }
+      } catch (e) {}
     }
 
-    // 備援管道 2：GAS JSONP（無 CORS 限制，於 GitHub Pages 與任何靜態環境通殺）
+    // 備援管道 2：GAS JSONP（無 CORS 限制）
     try {
       const data = await gasJsonpDoorplate(cleanAddr);
       if (data && (data.ok || Array.isArray(data.results)) && Array.isArray(data.results) && data.results.length > 0) {
@@ -129,103 +135,110 @@
     return null;
   }
 
-  // 解析使用者貼上的一整批文字（支援 Tab 分隔與 CSV 分隔）
+  // 自動解析 Excel 複製出來的文字 (TSV/CSV/Tab 分隔)
   function parseBatchInputText(text) {
-    if (!text || !text.trim()) return [];
-    const lines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!text || typeof text !== "string") return [];
+
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     if (!lines.length) return [];
 
     const firstLine = lines[0];
-    const sep = firstLine.includes("\t") ? "\t" : ",";
-    const matrix = lines.map(line => {
-      return sep === "\t" ? line.split("\t").map(c => c.trim()) : line.split(",").map(c => c.trim().replace(/^["']|["']$/g, ""));
+    const isTab = firstLine.includes("\t");
+    const delimiter = isTab ? "\t" : (firstLine.includes(",") ? "," : /\s+/);
+
+    const rows = lines.map(l => {
+      if (delimiter instanceof RegExp) {
+        return l.split(delimiter);
+      }
+      return l.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ""));
     });
 
-    let startIndex = 0;
-    let headerMap = null;
-    const firstRow = matrix[0].map(s => s.toLowerCase());
-    const hasHeader = firstRow.some(col =>
-      col.includes("電號") || col.includes("地址") || col.includes("圖號") || col.includes("設備") || col.includes("表號")
-    );
+    let headerIdx = -1;
+    let custNoCol = -1;
+    let addrCol = -1;
+    let poleCol = -1;
+    let codeCol = -1;
+    let meterNoCol = -1;
+    let termCol = -1;
 
-    if (hasHeader) {
-      startIndex = 1;
-      headerMap = {};
-      firstRow.forEach((col, idx) => {
-        if (col.includes("電號")) headerMap.custNo = idx;
-        else if (col.includes("地址")) headerMap.addr = idx;
-        else if (col.includes("圖號") || col.includes("座標")) headerMap.code = idx;
-        else if (col.includes("設備") || col.includes("桿名") || col.includes("桿號")) headerMap.pole = idx;
-        else if (col.includes("表號")) headerMap.meterNo = idx;
-        else if (col.includes("檢定")) headerMap.expiry = idx;
-      });
+    for (let i = 0; i < Math.min(3, rows.length); i++) {
+      const row = rows[i];
+      const joined = row.join(" ");
+      if (/(?:電號|用電地址|圖號|座標|表號|土木)/.test(joined)) {
+        headerIdx = i;
+        row.forEach((col, cIdx) => {
+          const c = col.replace(/\s+/g, "");
+          if (c.includes("電號")) custNoCol = cIdx;
+          else if (c.includes("地址")) addrCol = cIdx;
+          else if (c.includes("土木") || c.includes("設備") || c.includes("桿名")) poleCol = cIdx;
+          else if (c.includes("圖號") || c.includes("座標")) codeCol = cIdx;
+          else if (c.includes("表號")) meterNoCol = cIdx;
+          else if (c.includes("檢定") || c.includes("期限")) termCol = cIdx;
+        });
+        break;
+      }
     }
 
+    const dataRows = headerIdx !== -1 ? rows.slice(headerIdx + 1) : rows;
     const records = [];
-    for (let i = startIndex; i < matrix.length; i++) {
-      const row = matrix[i];
-      if (!row || row.length === 0 || (row.length === 1 && !row[0])) continue;
 
-      let custNo = "", addr = "", pole = "", code = "", meterNo = "", expiry = "";
+    for (const r of dataRows) {
+      if (!r || !r.length) continue;
 
-      if (headerMap) {
-        if (headerMap.custNo !== undefined) custNo = row[headerMap.custNo] || "";
-        if (headerMap.addr !== undefined) addr = row[headerMap.addr] || "";
-        if (headerMap.pole !== undefined) pole = row[headerMap.pole] || "";
-        if (headerMap.code !== undefined) code = row[headerMap.code] || "";
-        if (headerMap.meterNo !== undefined) meterNo = row[headerMap.meterNo] || "";
-        if (headerMap.expiry !== undefined) expiry = row[headerMap.expiry] || "";
-      } else {
-        // 智慧欄位推測
-        for (const cell of row) {
-          const val = String(cell || "").trim();
-          if (!val) continue;
+      let custNo = "";
+      let addr = "";
+      let pole = "";
+      let code = "";
+      let meterNo = "";
+      let inspectTerm = "";
 
-          // 1. 台電圖號座標 (例如 Q0999GB1201, N0801BC02, Q0998GE55)
-          if (!code && /^[A-Z]\d{4}[A-H][A-E]\d{2}(?:\d{2})?$/i.test(val)) {
-            code = val.toUpperCase();
-            continue;
-          }
-          // 2. 電號 (11碼純數字)
-          if (!custNo && /^\d{11}$/.test(val)) {
-            custNo = val;
-            continue;
-          }
-          // 3. 檢定期限 (例如 106/04, 108/10)
-          if (!expiry && /^\d{2,3}\/\d{2}$/.test(val)) {
-            expiry = val;
-            continue;
-          }
-          // 4. 電表表號 (8碼數字)
-          if (!meterNo && /^\d{8}$/.test(val)) {
-            meterNo = val;
-            continue;
-          }
-          // 5. 用電地址 (含路、街、段、號等關鍵字)
-          if (!addr && (/(?:市|縣|區|鄉|鎮|路|街|段)/.test(val) && (val.includes("號") || val.includes("路") || val.includes("段")))) {
-            addr = val;
-            continue;
-          }
-          // 6. 土木設備桿名 (如 新化54, 新北4, 朝天5左2, 亭置式變場)
-          if (!pole && (/(?:桿|變場|左|右|正新|朝天|忠孝|新化|新北|協興|太平|仁愛|窄港|信義|健康)/.test(val) || (val.length >= 2 && val.length <= 15 && !/^\d+$/.test(val)))) {
-            pole = val;
+      if (custNoCol !== -1 && r[custNoCol]) custNo = r[custNoCol];
+      if (addrCol !== -1 && r[addrCol]) addr = r[addrCol];
+      if (poleCol !== -1 && r[poleCol]) pole = r[poleCol];
+      if (codeCol !== -1 && r[codeCol]) code = r[codeCol];
+      if (meterNoCol !== -1 && r[meterNoCol]) meterNo = r[meterNoCol];
+      if (termCol !== -1 && r[termCol]) inspectTerm = r[termCol];
+
+      // 智慧備援推斷
+      if (addrCol === -1 || !addr) {
+        for (const col of r) {
+          if (/(?:市|縣|區|鄉|鎮|路|街|巷|段)/.test(col) && col.length >= 4) {
+            addr = col;
+            break;
           }
         }
       }
 
-      addr = String(addr || "").normalize("NFKC").trim();
-      code = String(code || "").toUpperCase().trim();
+      if (codeCol === -1 || !code) {
+        for (const col of r) {
+          const m = col.match(/[A-HJ-Z]\d{4}[A-HJ-Z]{2}\d{2,4}/i);
+          if (m) {
+            code = m[0].toUpperCase();
+            break;
+          }
+        }
+      }
 
-      if (addr || code || custNo) {
+      if (custNoCol === -1 || !custNo) {
+        for (const col of r) {
+          if (/^\d{11}$/.test(col)) {
+            custNo = col;
+            break;
+          }
+        }
+      }
+
+      // 標準化圖號座標
+      code = code.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
+      if (custNo || addr || code) {
         records.push({
-          id: `meter_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-          index: records.length + 1,
           custNo,
           addr,
           pole,
           code,
           meterNo,
-          expiry,
+          inspectTerm,
           lat: null,
           lng: null,
           locType: null, // "doorplate" | "grid" | "fallback"
@@ -237,7 +250,7 @@
     return records;
   }
 
-  // 範例資料（取自使用者上傳之新化區清單）
+  // 範例資料（使用者上傳之新化區電表抽查清單）
   const SAMPLE_TEXT = `電號\t契約\t型式\t相別\t電表表號\t檢定期限\t用電地址\t土木設備\t圖號座標
 10400167136\t15\t28\tD\t97011444\t106/04\t台南市新化區中正路８４７號\t新化54\tQ0999GB1201
 10400168707\t15\t28\tD\t99102066\t108/10\t台南市新市區永就段９１１號\t新化6左8左5右10\tN0801BC02
@@ -258,6 +271,8 @@
     records: [],
     layerGroup: null,
     isProcessing: false,
+    showLabels: true,       // 是否顯示批次電表永久標籤
+    bgLabelsHidden: true,   // 是否已隱藏背景電桿標籤
   };
 
   const controls = {
@@ -281,6 +296,17 @@
     fitBoundsBtn: null,
     exportBtn: null,
     clearAllBtn: null,
+    toggleBgLabelsBtn: null,
+    toggleLabelsBtn: null,
+    shareQrBtn: null,
+    driveUploadBtn: null,
+    driveRestoreBtn: null,
+    toBookmarksBtn: null,
+    qrModal: null,
+    qrClose: null,
+    qrBox: null,
+    qrUrl: null,
+    qrCopyBtn: null,
   };
 
   function initControls() {
@@ -293,6 +319,8 @@
     controls.sampleBtn = document.getElementById("batchMeterSampleBtn");
     controls.fileBtn = document.getElementById("batchMeterFileBtn");
     controls.fileInput = document.getElementById("batchMeterFileInput");
+    controls.clearInputBtn = document.getElementById("batchMeterClearInputBtn");
+    controls.clearInputBtnTop = document.getElementById("batchMeterClearInputBtnTop");
     controls.progress = document.getElementById("batchMeterProgress");
     controls.progressText = document.getElementById("batchMeterProgressText");
     controls.progressFill = document.getElementById("batchMeterProgressFill");
@@ -304,15 +332,28 @@
     controls.fitBoundsBtn = document.getElementById("batchFitBoundsBtn");
     controls.exportBtn = document.getElementById("batchExportBtn");
     controls.clearAllBtn = document.getElementById("batchClearAllBtn");
+
+    controls.toggleBgLabelsBtn = document.getElementById("batchToggleBgLabelsBtn");
+    controls.toggleLabelsBtn = document.getElementById("batchToggleLabelsBtn");
+    controls.shareQrBtn = document.getElementById("batchShareQrBtn");
+    controls.driveUploadBtn = document.getElementById("batchDriveUploadBtn");
+    controls.driveRestoreBtn = document.getElementById("batchDriveRestoreBtn");
+    controls.toBookmarksBtn = document.getElementById("batchToBookmarksBtn");
+
+    controls.qrModal = document.getElementById("v2BatchQrModal");
+    controls.qrClose = document.getElementById("v2BatchQrClose");
+    controls.qrBox = document.getElementById("v2BatchQrBox");
+    controls.qrUrl = document.getElementById("v2BatchQrUrl");
+    controls.qrCopyBtn = document.getElementById("v2BatchQrCopyBtn");
   }
 
-  function closeOtherFloatingPanels() {
+  // 關閉其他浮動面板
+  function closeOtherPanels() {
     const s = document.getElementById("mapSearchPanel"), st = document.getElementById("mapSearchToggle");
     const lp = document.getElementById("layerMenuPanel"), lt = document.getElementById("layerMenuToggle");
     const cp = document.getElementById("v2CadastrePanel"), ct = document.getElementById("v2CadastreToggle");
     const ap = document.getElementById("v2AddressPanel"), at = document.getElementById("v2AddressToggle");
     const sp = document.getElementById("v2SyncPanel"), spt = document.getElementById("v2SyncToggle");
-
     s?.classList.remove("is-open"); st?.classList.remove("is-active"); st?.setAttribute("aria-expanded", "false");
     if (lp) lp.hidden = true; lt?.classList.remove("is-active"); lt?.setAttribute("aria-expanded", "false");
     cp?.classList.remove("is-open"); cp?.setAttribute("aria-hidden", "true"); ct?.classList.remove("is-active"); ct?.setAttribute("aria-expanded", "false");
@@ -322,23 +363,14 @@
 
   function setPanelOpen(open) {
     if (!controls.panel || !controls.toggle) return;
-    if (open && !controls.panel.classList.contains("is-open")) {
-      const e = new CustomEvent("v2-batch-meter-open", { cancelable: true });
-      if (!document.dispatchEvent(e)) return;
-    }
     controls.panel.classList.toggle("is-open", open);
     controls.panel.setAttribute("aria-hidden", String(!open));
     controls.toggle.classList.toggle("is-active", open);
     controls.toggle.setAttribute("aria-expanded", String(open));
     if (open) {
-      closeOtherFloatingPanels();
-      if (controls.input && !controls.input.value) controls.input.focus();
+      closeOtherPanels();
     }
   }
-
-  document.addEventListener("v2-cadastre-open", () => setPanelOpen(false));
-  document.addEventListener("v2-address-open", () => setPanelOpen(false));
-  document.addEventListener("v2-inspection-open", () => setPanelOpen(false));
 
   function switchTab(tabName) {
     controls.tabs.forEach(btn => {
@@ -353,7 +385,69 @@
     });
   }
 
-  // 核心執行程序：智慧分流批次定位
+  // --- 背景電桿標籤隱藏與顯示控制 ---
+  function hideBackgroundPoleLabels() {
+    const btn = document.getElementById("toggleLabelsBtn");
+    if (btn && !btn.classList.contains("is-hidden")) {
+      btn.click();
+    }
+    updateBgLabelsBtnUI(true);
+  }
+
+  function showBackgroundPoleLabels() {
+    const btn = document.getElementById("toggleLabelsBtn");
+    if (btn && btn.classList.contains("is-hidden")) {
+      btn.click();
+    }
+    updateBgLabelsBtnUI(false);
+  }
+
+  function toggleBackgroundPoleLabels() {
+    const btn = document.getElementById("toggleLabelsBtn");
+    if (btn) {
+      btn.click();
+      const isHidden = btn.classList.contains("is-hidden");
+      updateBgLabelsBtnUI(isHidden);
+      showToast(isHidden ? "🚫 已為您隱藏背景電桿標籤" : "👁️ 已還原背景電桿標籤");
+    }
+  }
+
+  function updateBgLabelsBtnUI(hidden) {
+    state.bgLabelsHidden = hidden;
+    if (!controls.toggleBgLabelsBtn) return;
+    if (hidden) {
+      controls.toggleBgLabelsBtn.textContent = "🚫 背景電桿：已隱藏";
+      controls.toggleBgLabelsBtn.classList.add("is-hidden-state");
+      controls.toggleBgLabelsBtn.classList.remove("is-active");
+    } else {
+      controls.toggleBgLabelsBtn.textContent = "👁️ 背景電桿：顯示中";
+      controls.toggleBgLabelsBtn.classList.remove("is-hidden-state");
+      controls.toggleBgLabelsBtn.classList.add("is-active");
+    }
+  }
+
+  // --- 批次電表標籤切換（Tooltip）---
+  function toggleBatchLabels(force) {
+    state.showLabels = typeof force === "boolean" ? force : !state.showLabels;
+    if (controls.toggleLabelsBtn) {
+      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 電表標籤：顯示中" : "🏷️ 電表標籤：已隱藏";
+      controls.toggleLabelsBtn.classList.toggle("is-active", state.showLabels);
+      controls.toggleLabelsBtn.classList.toggle("is-hidden-state", !state.showLabels);
+    }
+    if (state.layerGroup) {
+      state.layerGroup.eachLayer(layer => {
+        if (layer.getTooltip()) {
+          if (state.showLabels) {
+            layer.openTooltip();
+          } else {
+            layer.closeTooltip();
+          }
+        }
+      });
+    }
+  }
+
+  // 核心執行流程：解析並批次定位
   async function runBatchGeocoding() {
     const rawText = controls.input.value.trim();
     if (!rawText) {
@@ -364,7 +458,7 @@
 
     const records = parseBatchInputText(rawText);
     if (!records.length) {
-      showToast("無法辨識資料，請確認是否包含用電地址或圖號座標欄位！", "error");
+      showToast("無法辨識資料，請確認是否包含用電地址或圖號座標！", "error");
       return;
     }
 
@@ -372,7 +466,7 @@
     controls.startBtn.disabled = true;
     controls.progress.style.display = "flex";
     controls.progressFill.style.width = "0%";
-    controls.progressText.textContent = `準備解析 ${records.length} 筆電表...`;
+    controls.progressText.textContent = `準備定位 ${records.length} 筆電表...`;
 
     const total = records.length;
     let completed = 0;
@@ -382,13 +476,12 @@
 
     const tpcFunc = window.tpcCodeToLatLng;
 
-    // 依序處理（門牌帶小延遲防止被阻擋，地號直接秒算）
     for (let i = 0; i < total; i++) {
       const r = records[i];
       const isParcel = isLandParcelAddress(r.addr);
 
       if (isParcel) {
-        // 規則 1：是地號 ➔ 直接用圖號座標秒級反推
+        // 規則 1：是地號 ➔ 直接使用圖號座標精準反推現場電桿
         if (r.code && typeof tpcFunc === "function") {
           const pt = tpcFunc(r.code);
           if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
@@ -400,7 +493,7 @@
           }
         }
       } else if (r.addr) {
-        // 規則 2：是一般門牌地址 ➔ 呼叫電子門牌定位
+        // 規則 2：是一般門牌地址 ➔ 調用電子門牌定位
         const geo = await geocodeDoorplate(r.addr);
         if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
           r.lat = geo.lat;
@@ -415,12 +508,11 @@
             r.lat = pt.lat;
             r.lng = pt.lng;
             r.locType = "fallback";
-            r.locLabel = "🛡️ 門牌查無，轉用圖號座標定位";
+            r.locLabel = "⚡ 門牌查無，轉用圖號座標定位";
             fallbackCount++;
           }
         }
-        // 微量間隔保持網路順暢
-        await new Promise(res => setTimeout(res, 60));
+        await new Promise(res => setTimeout(res, 50));
       } else if (r.code && typeof tpcFunc === "function") {
         const pt = tpcFunc(r.code);
         if (pt && Number.isFinite(pt.lat) && Number.isFinite(pt.lng)) {
@@ -443,12 +535,20 @@
     controls.startBtn.disabled = false;
     controls.progress.style.display = "none";
 
-    // 渲染地圖與列表
+    // 儲存至本地快取
+    try {
+      localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records));
+    } catch {}
+
+    // 自動隱藏雜亂之背景電桿標籤
+    hideBackgroundPoleLabels();
+
+    // 繪製地圖標記、文字標籤與清單卡片
     renderBatchMarkers();
     renderBatchList();
     updateSummaryBadges(doorplateSuccess, gridCount, fallbackCount);
 
-    // 切換至清單分頁
+    // 切換至結果頁
     switchTab("list");
 
     const map = getMap();
@@ -459,17 +559,22 @@
       }
     }
 
-    showToast(`✅ 批次標記完成！成功定位 ${state.records.length} / ${total} 筆電表`);
+    showToast(`🎉 批次標記完成！成功定位 ${state.records.length} / ${total} 筆電表（已自動隱藏背景電桿標籤）`);
   }
 
   function updateSummaryBadges(dp, grid, fallback) {
+    if (dp === undefined) {
+      dp = state.records.filter(r => r.locType === "doorplate").length;
+      grid = state.records.filter(r => r.locType === "grid").length;
+      fallback = state.records.filter(r => r.locType === "fallback").length;
+    }
     if (controls.totalCount) controls.totalCount.textContent = state.records.length;
     if (controls.doorplateCount) controls.doorplateCount.textContent = dp;
     if (controls.gridCount) controls.gridCount.textContent = grid + fallback;
     if (controls.tabCountBadge) controls.tabCountBadge.textContent = state.records.length;
   }
 
-  // 繪製地圖標記點
+  // 繪製地圖標記點與醒目文字標籤
   function renderBatchMarkers() {
     const map = getMap();
     if (!map || !window.L) return;
@@ -492,62 +597,66 @@
         popupAnchor: [0, -14]
       });
 
-      const marker = L.marker([r.lat, r.lng], { icon, zIndexOffset: 800 });
+      const marker = L.marker([r.lat, r.lng], { icon });
+
+      // 地圖上的永久醒目標籤 (Batch Map Label Tooltip)
+      const labelHtml = `
+        <div class="batch-map-label ${badgeClass}">
+          <span class="batch-label-index">#${idx + 1}</span>
+          <span class="batch-label-text">${escapeHtml(r.addr || r.code || r.custNo)}</span>
+          ${r.pole ? `<span class="batch-label-pole">(${escapeHtml(r.pole)})</span>` : ""}
+        </div>
+      `;
+      marker.bindTooltip(labelHtml, {
+        permanent: state.showLabels !== false,
+        direction: "top",
+        offset: [0, -14],
+        className: "batch-meter-map-tooltip"
+      });
+
+      // 點擊彈出詳細資訊卡
+      const typeBadge = r.locType === "doorplate"
+        ? `<span style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:700;">🏠 門牌定位</span>`
+        : `<span style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:700;">⚡ 圖號定位</span>`;
+
+      const navUrl = googleNavUrl(r.lat, r.lng);
 
       const popupHtml = `
-        <div class="v2-cadastre-popup" style="min-width:240px;line-height:1.5;">
-          <div style="border-bottom:1px solid #e2e8f0;padding-bottom:5px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">
-            <strong style="color:#0f766e;font-size:14px;">#${idx + 1} 電號 ${escapeHtml(r.custNo || "未填寫")}</strong>
-            <span style="font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;${r.locType === 'doorplate' ? 'background:#ecfdf5;color:#065f46;' : 'background:#eff6ff;color:#1e40af;'}">
-              ${r.locType === 'doorplate' ? '🏠 門牌定位' : '⚡ 圖號定位'}
-            </span>
+        <div class="batch-popup-card" style="min-width:230px;line-height:1.5;font-size:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:4px;margin-bottom:6px;">
+            <strong style="color:#0f766e;font-size:13px;">#${idx + 1} 電號 ${escapeHtml(r.custNo || "--")}</strong>
+            ${typeBadge}
           </div>
-          <div style="font-size:12px;display:grid;gap:2px;">
-            <div>📍 地址：<strong>${escapeHtml(r.addr || "--")}</strong></div>
-            <div>⚡ 設備：<strong>${escapeHtml(r.pole || "--")}</strong></div>
-            <div>🗺️ 圖號：<strong>${escapeHtml(r.code || "--")}</strong></div>
-            ${r.meterNo ? `<div>🔢 表號：<strong>${escapeHtml(r.meterNo)}</strong></div>` : ""}
-            ${r.expiry ? `<div>📅 檢定：<strong>${escapeHtml(r.expiry)}</strong></div>` : ""}
-            <div style="font-size:11px;color:#64748b;margin-top:2px;">↳ ${escapeHtml(r.locLabel)}</div>
+          <div style="color:#334155;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
+          <div style="color:#334155;">⚡ <strong>設備：</strong>${escapeHtml(r.pole || "--")}</div>
+          <div style="color:#334155;">🗺️ <strong>圖號：</strong><span style="font-family:monospace;font-weight:700;color:#0f766e;">${escapeHtml(r.code || "--")}</span></div>
+          ${r.meterNo ? `<div style="color:#64748b;">🔢 表號：${escapeHtml(r.meterNo)}</div>` : ""}
+          ${r.inspectTerm ? `<div style="color:#64748b;">📅 檢定：${escapeHtml(r.inspectTerm)}</div>` : ""}
+          <div style="font-size:11px;color:#047857;margin-top:4px;padding:3px 6px;background:#f0fdf4;border-radius:4px;">
+            ↳ ${escapeHtml(r.locLabel)}
           </div>
-          <div class="v2-cadastre-popup-actions" style="margin-top:8px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;gap:6px;">
-            <a class="popup-navigation-link" href="${googleNavUrl(r.lat, r.lng)}" target="_blank" rel="noopener" style="flex:1;text-align:center;">🗺️ 導航</a>
-            <button type="button" class="popup-clear-location-button" data-remove-meter-idx="${idx}" style="flex:1;">✕ 移除本點</button>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <a href="${navUrl}" target="_blank" rel="noopener noreferrer" style="flex:1;background:#0f766e;color:#fff;text-align:center;padding:5px 8px;border-radius:5px;text-decoration:none;font-weight:700;font-size:12px;display:inline-block;">
+              🗺️ 導航
+            </a>
+            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;padding:5px 8px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;">
+              ✕ 移除本點
+            </button>
           </div>
         </div>
       `;
 
-      marker.bindPopup(popupHtml);
-      marker.addTo(state.layerGroup);
-      r._marker = marker;
-    });
-
-    // 委派彈窗內的移除按鈕
-    map.on("popupopen", (e) => {
-      const popupNode = e.popup?.getElement();
-      if (!popupNode) return;
-      const removeBtn = popupNode.querySelector("[data-remove-meter-idx]");
-      if (removeBtn) {
-        removeBtn.onclick = () => {
-          const removeIdx = parseInt(removeBtn.getAttribute("data-remove-meter-idx"), 10);
-          if (!isNaN(removeIdx) && state.records[removeIdx]) {
-            const removed = state.records.splice(removeIdx, 1)[0];
-            if (removed?._marker) state.layerGroup.removeLayer(removed._marker);
-            map.closePopup();
-            renderBatchMarkers();
-            renderBatchList();
-            showToast("已移除該電表標記");
-          }
-        };
-      }
+      marker.bindPopup(popupHtml, { maxWidth: 300, className: "batch-meter-popup" });
+      state.layerGroup.addLayer(marker);
+      r.marker = marker;
     });
   }
 
-  // 渲染分頁 2 的結果清單
+  // 渲染分頁 2 的結果卡片
   function renderBatchList() {
     if (!controls.list) return;
     if (!state.records.length) {
-      controls.list.innerHTML = `<div style="text-align:center;padding:24px 8px;color:#94a3b8;font-size:12px;">尚未標記任何電表，請在第一頁貼上資料並點擊開始標記。</div>`;
+      controls.list.innerHTML = `<div style="text-align:center;padding:24px 8px;color:#94a3b8;font-size:12px;">尚未標記任何電表，請在第一頁貼上並點擊開始標記。</div>`;
       return;
     }
 
@@ -571,36 +680,33 @@
 
     controls.list.innerHTML = html;
 
-    // 點擊清單項目飛至該點
-    controls.list.querySelectorAll(".v2-batch-item").forEach(item => {
-      item.onclick = () => {
-        const idx = parseInt(item.dataset.meterIdx, 10);
+    // 綁定卡片點擊聚焦
+    controls.list.querySelectorAll(".v2-batch-item").forEach(el => {
+      el.addEventListener("click", () => {
+        const idx = parseInt(el.dataset.meterIdx, 10);
         const r = state.records[idx];
         const map = getMap();
         if (map && r && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
-          if (window.matchMedia("(max-width: 768px)").matches) {
-            setPanelOpen(false); // 手機端點選後自動收合面板查看地圖
+          map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 17), { duration: 0.8 });
+          if (r.marker) {
+            setTimeout(() => r.marker.openPopup(), 400);
           }
-          map.flyTo([r.lat, r.lng], 19, { duration: 0.5 });
-          window.setTimeout(() => {
-            if (r._marker) r._marker.openPopup();
-          }, 550);
         }
-      };
+      });
     });
   }
 
-  // 匯出帶有座標與導航連結的 Excel 表格
+  // 匯出帶座標與導航連結的 Excel
   async function exportToExcel() {
     if (!state.records.length) {
-      showToast("目前沒有可匯出的標記紀錄", "dup");
+      showToast("沒有標記結果可匯出！", "dup");
       return;
     }
 
     try {
       await ensureXLSX();
       const exportRows = [
-        ["項次", "電號", "用電地址", "土木設備(桿名)", "圖號座標", "電表表號", "檢定期限", "定位方式", "緯度(Lat)", "經度(Lng)", "Google導航網址"]
+        ["編號", "電號", "用電地址", "土木設備(桿名)", "圖號座標", "電表表號", "檢定期限", "定位型態", "緯度(Lat)", "經度(Lng)", "Google導航網址"]
       ];
 
       state.records.forEach((r, idx) => {
@@ -611,44 +717,252 @@
           r.pole || "",
           r.code || "",
           r.meterNo || "",
-          r.expiry || "",
-          r.locLabel || (r.locType === "doorplate" ? "電子門牌" : "圖號座標"),
-          r.lat ? Number(r.lat.toFixed(6)) : "",
-          r.lng ? Number(r.lng.toFixed(6)) : "",
-          r.lat && r.lng ? googleNavUrl(r.lat, r.lng) : ""
+          r.inspectTerm || "",
+          r.locLabel || "",
+          Number(r.lat.toFixed(6)),
+          Number(r.lng.toFixed(6)),
+          googleNavUrl(r.lat, r.lng)
         ]);
       });
 
       const ws = XLSX.utils.aoa_to_sheet(exportRows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "電表定位清單");
-
-      const now = new Date();
-      const pad = n => String(n).padStart(2, "0");
-      const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-      const fileName = `台電電表標記清單_${dateStr}.xlsx`;
-
-      XLSX.writeFile(wb, fileName);
-      showToast(`已成功匯出 ${fileName}`);
+      XLSX.utils.book_append_sheet(wb, ws, "批次電表標記");
+      const dateStr = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `台電電表標記清單_${dateStr}.xlsx`);
+      showToast("📥 Excel 檔案已順利下載！");
     } catch (e) {
-      showToast("匯出 Excel 失敗：" + e.message, "error");
+      showToast("匯出失敗：" + e.message, "error");
     }
   }
 
-  // 清除全部標記
+  // --- 批次資料的高效 URL 壓縮傳送編碼（支援手機掃碼秒傳）---
+  async function compressBatch(records) {
+    const compact = records.map(r => [
+      r.custNo || "",
+      r.addr || "",
+      r.pole || "",
+      r.code || "",
+      r.meterNo || "",
+      r.inspectTerm || "",
+      Number(r.lat.toFixed(6)),
+      Number(r.lng.toFixed(6)),
+      r.locType === "doorplate" ? 1 : 2
+    ]);
+    const json = JSON.stringify(compact);
+    if (typeof CompressionStream !== "undefined") {
+      try {
+        const stream = new Blob([new TextEncoder().encode(json)]).stream();
+        const compressedStream = stream.pipeThrough(new CompressionStream("deflate-raw"));
+        const buffer = await new Response(compressedStream).arrayBuffer();
+        let binary = "";
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return "z_" + btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      } catch (e) {}
+    }
+    return encodeURIComponent(json);
+  }
+
+  async function decompressBatch(rawStr) {
+    if (rawStr.startsWith("z_")) {
+      const b64 = rawStr.slice(2);
+      let base64 = b64.replace(/-/g, "+").replace(/_/g, "/");
+      while (base64.length % 4) base64 += "=";
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const stream = new Blob([bytes]).stream();
+      const decompressedStream = stream.pipeThrough(new DecompressionStream("deflate-raw"));
+      const text = await new Response(decompressedStream).text();
+      const data = JSON.parse(text);
+      return data.map(item => ({
+        custNo: item[0],
+        addr: item[1],
+        pole: item[2],
+        code: item[3],
+        meterNo: item[4],
+        inspectTerm: item[5],
+        lat: Number(item[6]),
+        lng: Number(item[7]),
+        locType: item[8] === 1 ? "doorplate" : "grid",
+        locLabel: item[8] === 1 ? "🏠 電子門牌精準定位（用戶住家）" : "⚡ 圖號座標定位（地號農電桿）"
+      }));
+    } else {
+      const decoded = decodeURIComponent(rawStr);
+      const data = JSON.parse(decoded);
+      return data.map(item => ({
+        custNo: item[0],
+        addr: item[1],
+        pole: item[2],
+        code: item[3],
+        meterNo: item[4],
+        inspectTerm: item[5],
+        lat: Number(item[6]),
+        lng: Number(item[7]),
+        locType: item[8] === 1 || item[8] === "doorplate" ? "doorplate" : "grid",
+        locLabel: item[8] === 1 || item[8] === "doorplate" ? "🏠 電子門牌精準定位（用戶住家）" : "⚡ 圖號座標定位（地號農電桿）"
+      }));
+    }
+  }
+
+  // --- 手機掃描 QR Code 傳送 ---
+  async function openQrModal() {
+    if (!state.records.length) {
+      showToast("目前沒有標記資料可傳送！請先貼上清單並解析", "dup");
+      return;
+    }
+    const encoded = await compressBatch(state.records);
+    const url = `${location.origin}${location.pathname}#batch=${encoded}`;
+
+    if (controls.qrUrl) controls.qrUrl.value = url;
+    if (controls.qrBox) {
+      controls.qrBox.innerHTML = "";
+      if (window.QRCode) {
+        try {
+          new QRCode(controls.qrBox, {
+            text: url,
+            width: 200,
+            height: 200,
+            correctLevel: QRCode.CorrectLevel.L
+          });
+        } catch (e) {
+          controls.qrBox.innerHTML = `<div style="font-size:12px;color:#d97706;padding:12px;">資料筆數較多，請直接點擊下方「複製」連結傳送，或使用「☁️ 上傳 Drive」同步</div>`;
+        }
+      } else {
+        controls.qrBox.innerHTML = `<a href="${url}" target="_blank" style="word-break:break-all;font-size:12px;">${url}</a>`;
+      }
+    }
+    if (controls.qrModal) {
+      controls.qrModal.hidden = false;
+    }
+  }
+
+  function closeQrModal() {
+    if (controls.qrModal) controls.qrModal.hidden = true;
+    if (controls.qrBox) controls.qrBox.innerHTML = "";
+  }
+
+  function copyQrUrl() {
+    if (!controls.qrUrl) return;
+    controls.qrUrl.select();
+    navigator.clipboard?.writeText(controls.qrUrl.value).then(() => {
+      showToast("📋 網址已複製到剪貼簿！可貼至 LINE 傳送給手機");
+    }).catch(() => {
+      document.execCommand("copy");
+      showToast("📋 網址已複製！");
+    });
+  }
+
+  // 手機網址 Hash 接收器（手機掃描 QR Code 後自動加載）
+  async function checkUrlHashBatch() {
+    if (!location.hash || !location.hash.startsWith("#batch=")) return;
+    try {
+      const hashData = location.hash.slice(7);
+      const records = await decompressBatch(hashData);
+      if (Array.isArray(records) && records.length > 0) {
+        state.records = records.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+        try { localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records)); } catch {}
+
+        hideBackgroundPoleLabels();
+        renderBatchMarkers();
+        renderBatchList();
+        updateSummaryBadges();
+
+        setPanelOpen(true);
+        switchTab("list");
+
+        setTimeout(() => {
+          const map = getMap();
+          if (map && state.layerGroup) {
+            const bounds = state.layerGroup.getBounds();
+            if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+          }
+        }, 600);
+
+        showToast(`🎉 手機已載入 ${state.records.length} 筆電表！已為您自動隱藏背景電桿標籤`);
+        history.replaceState(null, "", location.pathname + location.search);
+      }
+    } catch (e) {
+      console.warn("無法從網址 Hash 解析批次電表：", e);
+    }
+  }
+
+  // --- Google Drive 備份與還原 ---
+  function uploadBatchToDrive() {
+    if (!state.records.length) {
+      showToast("目前沒有批次電表標記可上傳！", "dup");
+      return;
+    }
+    localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records));
+    if (window.__bookmarkDrive) {
+      window.__bookmarkDrive.upload("batch");
+    } else {
+      showToast("Google Drive 模組尚未就緒，請稍候重試", "error");
+    }
+  }
+
+  function restoreBatchFromDrive() {
+    if (window.__bookmarkDrive) {
+      window.__bookmarkDrive.restore("batch");
+    } else {
+      showToast("Google Drive 模組尚未就緒，請稍候重試", "error");
+    }
+  }
+
+  // --- 轉存至門牌收藏 ---
+  function saveToAddressBookmarks() {
+    if (!state.records.length) {
+      showToast("目前沒有標記資料可轉存！", "dup");
+      return;
+    }
+    try {
+      const key = "tp_address_bookmarks_v1";
+      let existing = [];
+      try { existing = JSON.parse(localStorage.getItem(key) || "[]"); } catch { existing = []; }
+      const now = new Date().toISOString();
+      let added = 0;
+      state.records.forEach((r, i) => {
+        const id = `bm_batch_${Date.now()}_${i}`;
+        existing.unshift({
+          id,
+          address: r.addr || r.custNo,
+          detail: `電號: ${r.custNo || '--'} · 桿名: ${r.pole || '--'} · 圖號: ${r.code || '--'}`,
+          la: r.lat,
+          ln: r.lng,
+          visible: true,
+          createdAt: now
+        });
+        added++;
+      });
+      localStorage.setItem(key, JSON.stringify(existing));
+      if (window.__bookmarkDB) {
+        window.__bookmarkDB.saveBookmarks("address", existing).catch(() => {});
+      }
+      window.dispatchEvent(new CustomEvent("bookmarksRestored"));
+      showToast(`⭐ 已成功將 ${added} 筆電表轉存至「門牌收藏」！可在「🏠 門牌 ➔ ⭐ 收藏」中檢視`);
+    } catch (e) {
+      showToast("轉存失敗：" + e.message, "error");
+    }
+  }
+
+  // 清空所有標記
   function clearAllMarkers() {
     if (!state.records.length) return;
-    if (confirm("確定要清除地圖上所有的批次電表標記嗎？")) {
-      if (state.layerGroup) state.layerGroup.clearLayers();
-      state.records = [];
-      updateSummaryBadges(0, 0, 0);
-      renderBatchList();
-      showToast("已清除所有標記");
-    }
+    if (state.layerGroup) state.layerGroup.clearLayers();
+    state.records = [];
+    localStorage.removeItem("tp_batch_meter_bookmarks_v1");
+    renderBatchList();
+    updateSummaryBadges(0, 0, 0);
+    showToast("已清空批次電表標記");
   }
 
-  // 綁定事件
+  // 綁定所有使用者介面事件
   function bindEvents() {
+    document.addEventListener("v2-cadastre-open", () => setPanelOpen(false));
+    document.addEventListener("v2-address-open", () => setPanelOpen(false));
+    document.addEventListener("v2-inspection-open", () => setPanelOpen(false));
+
     controls.toggle?.addEventListener("click", () => setPanelOpen(!controls.panel?.classList.contains("is-open")));
     controls.close?.addEventListener("click", () => setPanelOpen(false));
 
@@ -659,9 +973,19 @@
     controls.sampleBtn?.addEventListener("click", () => {
       if (controls.input) {
         controls.input.value = SAMPLE_TEXT;
-        showToast("已載入新化區測試範例資料！請點擊「開始標記」");
+        showToast("已載入新化區測試範例資料！請點擊開始標記");
       }
     });
+
+    function handleClearInput() {
+      if (controls.input) {
+        controls.input.value = "";
+        controls.input.focus();
+        showToast("已清空輸入框內容");
+      }
+    }
+    controls.clearInputBtn?.addEventListener("click", handleClearInput);
+    controls.clearInputBtnTop?.addEventListener("click", handleClearInput);
 
     controls.startBtn?.addEventListener("click", runBatchGeocoding);
 
@@ -680,17 +1004,16 @@
             const tsv = XLSX.utils.sheet_to_csv(firstSheet, { FS: "\t" });
             if (controls.input) {
               controls.input.value = tsv;
-              showToast(`成功讀取「${file.name}」，已載入輸入框！請點擊「開始標記」`);
+              showToast(`成功讀取「${file.name}」，已填入輸入框！請點擊開始標記`);
             }
           } catch (err) {
-            showToast("讀取 Excel 失敗：" + err.message, "error");
+            showToast("檔案讀取失敗：" + err.message, "error");
           }
         };
         reader.readAsArrayBuffer(file);
       } catch (err) {
-        showToast("無法載入 Excel 模組：" + err.message, "error");
+        showToast("解析失敗：" + err.message, "error");
       }
-      e.target.value = "";
     });
 
     controls.fitBoundsBtn?.addEventListener("click", () => {
@@ -705,10 +1028,93 @@
 
     controls.exportBtn?.addEventListener("click", exportToExcel);
     controls.clearAllBtn?.addEventListener("click", clearAllMarkers);
+
+    // 標籤控制
+    controls.toggleBgLabelsBtn?.addEventListener("click", toggleBackgroundPoleLabels);
+    controls.toggleLabelsBtn?.addEventListener("click", () => toggleBatchLabels());
+
+    // 跨裝置傳送與雲端備份
+    controls.shareQrBtn?.addEventListener("click", openQrModal);
+    controls.qrClose?.addEventListener("click", closeQrModal);
+    controls.qrCopyBtn?.addEventListener("click", copyQrUrl);
+    controls.qrModal?.addEventListener("click", (e) => {
+      if (e.target === controls.qrModal) closeQrModal();
+    });
+
+    controls.driveUploadBtn?.addEventListener("click", uploadBatchToDrive);
+    controls.driveRestoreBtn?.addEventListener("click", restoreBatchFromDrive);
+    controls.toBookmarksBtn?.addEventListener("click", saveToAddressBookmarks);
+
+    // 監聽 Drive 還原事件
+    window.addEventListener("batchMetersRestored", () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("tp_batch_meter_bookmarks_v1") || "[]");
+        if (Array.isArray(saved) && saved.length > 0) {
+          state.records = saved;
+          hideBackgroundPoleLabels();
+          renderBatchMarkers();
+          renderBatchList();
+          updateSummaryBadges();
+          switchTab("list");
+          const map = getMap();
+          if (map && state.layerGroup) {
+            const bounds = state.layerGroup.getBounds();
+            if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
+          }
+          showToast(`☁️ 已從 Google Drive 還原 ${saved.length} 筆批次電表！`);
+        }
+      } catch {}
+    });
+
+    // 監聽彈窗單筆移除
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".batch-remove-single-btn");
+      if (btn) {
+        const idx = parseInt(btn.dataset.removeIdx, 10);
+        if (!isNaN(idx) && state.records[idx]) {
+          const removed = state.records.splice(idx, 1)[0];
+          if (removed.marker && state.layerGroup) {
+            state.layerGroup.removeLayer(removed.marker);
+          }
+          renderBatchMarkers();
+          renderBatchList();
+          updateSummaryBadges();
+          getMap()?.closePopup();
+          showToast("已移除該筆標記");
+        }
+      }
+    });
   }
 
-  window.addEventListener("DOMContentLoaded", () => {
+  // 嘗試還原本地暫存
+  function restoreLocalCachedBatch() {
+    try {
+      const cached = JSON.parse(localStorage.getItem("tp_batch_meter_bookmarks_v1") || "[]");
+      if (Array.isArray(cached) && cached.length > 0) {
+        state.records = cached;
+        renderBatchMarkers();
+        renderBatchList();
+        updateSummaryBadges();
+      }
+    } catch {}
+  }
+
+  function boot(attempt = 0) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => boot(0), { once: true });
+      return;
+    }
     initControls();
     bindEvents();
-  });
+    restoreLocalCachedBatch();
+    checkUrlHashBatch();
+
+    const map = getMap();
+    if (!map && attempt < 40) {
+      setTimeout(() => boot(attempt + 1), 100);
+      return;
+    }
+  }
+
+  boot();
 })();

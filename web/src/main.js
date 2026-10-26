@@ -5767,14 +5767,14 @@ window.__appBooted = true;
       // --- Bookmark Drive Sync ---
       const bookmarkDrive = {
         async upload(type) {
-          const label = type === "cadastre" ? "地籍" : "門牌";
-          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1" };
+          const label = type === "cadastre" ? "地籍" : type === "batch" ? "批次電表" : "門牌";
+          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1", batch: "tp_batch_meter_bookmarks_v1" };
           const key = lsKeys[type];
           let bookmarks;
           try {
             bookmarks = JSON.parse(localStorage.getItem(key) || "[]");
           } catch { bookmarks = []; }
-          if (!bookmarks.length) { GlobalModal.alert("目前沒有" + label + "收藏可上傳。"); return; }
+          if (!bookmarks.length) { GlobalModal.alert("目前沒有" + label + "可上傳。"); return; }
           const blob = new Blob([JSON.stringify(bookmarks, null, 2)], { type: "application/json" });
           const dateStr = new Date().toISOString().slice(0, 10);
           const fileName = `設備地圖收藏_${label}_${dateStr}.json`;
@@ -5788,14 +5788,14 @@ window.__appBooted = true;
           }
           try {
             await uploadZipToDrive(blob, fileName, null, "application/json");
-            GlobalModal.alert(`已上傳${label}收藏（${bookmarks.length} 筆）到雲端硬碟：<strong>${fileName}</strong>`);
+            GlobalModal.alert(`已上傳${label}（${bookmarks.length} 筆）到雲端硬碟：<strong>${fileName}</strong>`);
           } catch (e) {
-            GlobalModal.alert(label + "收藏上傳失敗：" + e.message);
+            GlobalModal.alert(label + "上傳失敗：" + e.message);
           }
         },
         async restore(type) {
-          const label = type === "cadastre" ? "地籍" : "門牌";
-          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1" };
+          const label = type === "cadastre" ? "地籍" : type === "batch" ? "批次電表" : "門牌";
+          const lsKeys = window.__BOOKMARK_LS_KEYS || { cadastre: "tp_cadastre_bookmarks_v1", address: "tp_address_bookmarks_v1", batch: "tp_batch_meter_bookmarks_v1" };
           const key = lsKeys[type];
           try {
             clearDriveAccessToken();
@@ -5885,17 +5885,20 @@ window.__appBooted = true;
               try { await window.__bookmarkDB.saveBookmarks(type, mergedBookmarks); } catch { /* ignore */ }
             }
             window.dispatchEvent(new CustomEvent("bookmarksRestored"));
-            GlobalModal.alert(`已還原${label}收藏：備份 ${downloaded.length} 筆，` +
+            if (type === "batch") {
+              window.dispatchEvent(new CustomEvent("batchMetersRestored"));
+            }
+            GlobalModal.alert(`已還原${label}：備份 ${downloaded.length} 筆，` +
               (bookmarkMode === "merge"
                 ? `新增 ${bookmarkAdded} 筆（原有 ${currentBookmarks.length} 筆）`
                 : `已取代原有 ${currentBookmarks.length} 筆`) +
               `，共 ${mergedBookmarks.length} 筆。`);
           } catch (e) {
-            GlobalModal.alert(label + "收藏還原失敗：" + e.message);
+            GlobalModal.alert(label + "還原失敗：" + e.message);
           }
         },
         async deleteCloud(type) {
-          const label = type === "cadastre" ? "地籍" : "門牌";
+          const label = type === "cadastre" ? "地籍" : type === "batch" ? "批次電表" : "門牌";
           try {
             clearDriveAccessToken();
             await getDriveAccessToken();

@@ -331,7 +331,10 @@
             </div>
           </div>
 
-          <label for="batchMeterInput" style="font-size:12px;font-weight:700;color:#334155;margin-top:4px;display:block;">貼上 Excel 清單內容：</label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+            <label for="batchMeterInput" style="font-size:12px;font-weight:700;color:#334155;">貼上 Excel 清單內容：</label>
+            <button id="batchMeterClearInputBtnTop" class="v2-batch-btn-secondary" type="button" style="font-size:11px;padding:2px 8px;color:#dc2626;border-color:#fecdd3;background:#fff1f2;" title="清空文字框內容">🧹 清除輸入框</button>
+          </div>
           <textarea id="batchMeterInput" class="v2-batch-textarea" placeholder="請從 Excel 複製包含【電號、用電地址、圖號座標】等欄位並貼上至此...
 （支援直接 Ctrl+V 貼上，包含或不含表頭皆可自動識別）"></textarea>
 
@@ -339,6 +342,7 @@
             <button id="batchMeterStartBtn" class="v2-batch-btn-primary" type="button" style="flex:1;min-width:140px;">🚀 開始解析並定位標記</button>
             <button id="batchMeterSampleBtn" class="v2-batch-btn-secondary" type="button">💡 載入範例</button>
             <button id="batchMeterFileBtn" class="v2-batch-btn-secondary" type="button">📁 匯入檔案</button>
+            <button id="batchMeterClearInputBtn" class="v2-batch-btn-secondary" type="button" style="color:#b91c1c;border-color:#fca5a5;background:#fef2f2;">🧹 清除輸入框</button>
             <input type="file" id="batchMeterFileInput" accept=".xlsx,.xls,.csv,.txt" style="display:none;" />
           </div>
 
@@ -358,10 +362,25 @@
             <span class="v2-batch-badge-item is-blue">⚡ 圖號 <strong id="batchGridCount">0</strong> 筆</span>
           </div>
 
-          <div style="display:flex;gap:6px;margin:6px 0;">
+          <!-- 標籤顯示控制：可獨立隱藏背景電桿雜訊，或切換電表標籤 -->
+          <div class="v2-batch-controls-row">
+            <span style="color:#64748b;font-weight:700;">標籤：</span>
+            <button id="batchToggleBgLabelsBtn" class="v2-batch-btn-chip is-hidden-state" type="button" title="點擊切換是否顯示背景電桿名稱標籤">🚫 背景電桿：已隱藏</button>
+            <button id="batchToggleLabelsBtn" class="v2-batch-btn-chip is-active" type="button" title="點擊切換這批電表的文字標籤">🏷️ 電表標籤：顯示中</button>
+          </div>
+
+          <div style="display:flex;gap:6px;margin:4px 0 6px;">
             <button id="batchFitBoundsBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;">🔍 全體視野</button>
             <button id="batchExportBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;background:#f0fdf4;color:#166534;border-color:#bbf7d0;">📥 匯出 Excel</button>
             <button id="batchClearAllBtn" class="v2-batch-btn-secondary" type="button" style="font-size:11px;color:#dc2626;">🗑️ 清空</button>
+          </div>
+
+          <!-- 傳送到手機與雲端備份工具列 -->
+          <div class="v2-batch-cloud-bar">
+            <button id="batchShareQrBtn" class="v2-batch-btn-phone" type="button" title="產生手機相機掃描 QR Code">📱 傳到手機 (QR Code)</button>
+            <button id="batchDriveUploadBtn" class="v2-batch-btn-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳 Drive</button>
+            <button id="batchDriveRestoreBtn" class="v2-batch-btn-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 從 Drive 還原</button>
+            <button id="batchToBookmarksBtn" class="v2-batch-btn-star" type="button" title="轉存為門牌收藏">⭐ 存入門牌收藏</button>
           </div>
 
           <div id="batchMeterList" class="v2-batch-list"></div>
@@ -709,6 +728,24 @@
       </div>
       <div id="defectEditStatus" style="font-size:11px; color:#64748b; min-height:14px; padding:0 10px 8px; flex-shrink:0;"></div>
     </section>
+
+    <!-- 📱 傳送批次電表到手機 QR Code 彈窗 -->
+    <div id="v2BatchQrModal" class="v2-batch-qr-backdrop" hidden>
+      <div class="v2-batch-qr-modal" role="dialog" aria-modal="true" aria-label="傳送到手機">
+        <div class="v2-batch-qr-head">
+          <span class="v2-batch-qr-title">📱 掃描傳送到手機</span>
+          <button id="v2BatchQrClose" class="v2-batch-qr-close" type="button" aria-label="關閉">×</button>
+        </div>
+        <div class="v2-batch-qr-desc">
+          請用<strong>手機相機</strong>直接對準螢幕掃描 QR Code，即可秒級在手機地圖上開啟這批電表，立即開始導航！
+        </div>
+        <div id="v2BatchQrBox" class="v2-batch-qr-box"></div>
+        <div class="v2-batch-qr-input-wrap">
+          <input id="v2BatchQrUrl" class="v2-batch-qr-input" type="text" readonly />
+          <button id="v2BatchQrCopyBtn" class="v2-batch-btn-secondary" type="button" style="flex-shrink:0;">📋 複製</button>
+        </div>
+      </div>
+    </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 
         <script type="module" src="./src/main.js"></script>
