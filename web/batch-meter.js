@@ -1267,12 +1267,7 @@
       <div class="batch-popup-meter-item" data-popup-meter-idx="${idx}">
         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin-bottom:4px;">
           <strong style="color:#0f766e;font-size:12px;">#${idx + 1} 電號 ${escapeHtml(formattedCustNo || "--")}</strong>
-          <div style="display:flex;align-items:center;gap:4px;">
-            ${typeBadge}
-            ${!showNavAndRemove ? `
-              <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" title="移除此電表" style="background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;border-radius:4px;cursor:pointer;font-size:10px;padding:1px 5px;line-height:1.2;">✕</button>
-            ` : ""}
-          </div>
+          ${typeBadge}
         </div>
         <div style="color:#334155;font-size:11px;line-height:1.4;">📍 <strong>地址：</strong>${escapeHtml(r.addr || "--")}</div>
         ${chips.length > 0 ? `<div class="v2-batch-chips-row" style="margin-top:3px;">${chips.join("")}</div>` : ""}
@@ -1285,8 +1280,8 @@
             <a class="popup-navigation-link" href="${googleNavUrl(r.lat, r.lng)}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
               🗺️ 導航
             </a>
-            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="flex:1;background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;min-height:28px;padding:4px 8px;">
-              ✕ 移除本點
+            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="flex:1;background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;min-height:28px;padding:4px 8px;">
+              🗑️ 移除標記
             </button>
           </div>
         ` : ""}
