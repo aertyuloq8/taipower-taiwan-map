@@ -12,6 +12,7 @@
     <link rel="icon" type="image/png" href="icon-192.png">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <link rel="stylesheet" href="cadastre.css" />
+    <link rel="stylesheet" href="batch-meter.css" />
     <script type="module" src="./src/utils/cdn.js"></script>
 
     <link rel="stylesheet" href="./src/styles/main.css" />
@@ -91,6 +92,8 @@
         aria-expanded="false" aria-controls="v2CadastrePanel" title="查詢地籍圖">🗺️ 地籍</button>
       <button id="v2AddressToggle" class="map-search-btn" type="button"
         aria-expanded="false" aria-controls="v2AddressPanel" title="查詢門牌地址">🏠 門牌</button>
+      <button id="v2BatchMeterToggle" class="map-search-btn" type="button"
+        aria-expanded="false" aria-controls="v2BatchMeterPanel" title="批次標記電表清單">📋 批次</button>
       <div class="layer-menu">
         <button id="layerMenuToggle" class="layer-menu-toggle" type="button" aria-expanded="false" aria-controls="layerMenuPanel" title="圖層控制">
           <span class="layer-menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -303,6 +306,68 @@
           <div id="v2AddressBookmarks" class="v2-bookmark-list"></div>
         </div>
         <p class="v2-address-disclaimer">門牌地址僅供參考！實際位置請依政府電子門牌為準</p>
+      </div>
+    </section>
+
+    <section id="v2BatchMeterPanel" class="v2-batch-panel" aria-hidden="true" aria-label="批次電表清單標記">
+      <div class="v2-batch-inner">
+        <header class="v2-batch-head">
+          <span class="v2-batch-title">📋 批次電表清單標記</span>
+          <button id="v2BatchMeterClose" class="v2-batch-close" type="button" title="關閉批次電表標記" aria-label="關閉批次電表標記">×</button>
+        </header>
+
+        <nav class="v2-bookmark-tabs" role="tablist" aria-label="批次標記分頁">
+          <button class="v2-tab-btn is-active" data-tab="input" data-panel="batch" role="tab" aria-selected="true">📝 貼上清單</button>
+          <button class="v2-tab-btn" data-tab="list" data-panel="batch" role="tab" aria-selected="false">📍 標記結果 <span class="v2-tab-count" id="v2BatchCount">0</span></button>
+        </nav>
+
+        <!-- Tab 1: 貼上清單與解析執行 -->
+        <div class="v2-tab-pane is-active" data-pane="input" data-panel="batch">
+          <div class="v2-batch-guide">
+            <div style="font-weight:700;color:#0f766e;margin-bottom:2px;">💡 智慧自動定位分流規則：</div>
+            <div style="color:#475569;line-height:1.5;">
+              • <strong>地號地址</strong>（含「段」、「小段」或無路名）：自動依<strong>圖號座標</strong>反推現場掛表桿位。<br>
+              • <strong>門牌地址</strong>（含「路/街/巷/弄」）：優先查<strong>電子門牌</strong>定位；若查無門牌自動以<strong>圖號座標</strong>保底。
+            </div>
+          </div>
+
+          <label for="batchMeterInput" style="font-size:12px;font-weight:700;color:#334155;margin-top:4px;display:block;">貼上 Excel 清單內容：</label>
+          <textarea id="batchMeterInput" class="v2-batch-textarea" placeholder="請從 Excel 複製包含【電號、用電地址、圖號座標】等欄位並貼上至此...
+（支援直接 Ctrl+V 貼上，包含或不含表頭皆可自動識別）"></textarea>
+
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+            <button id="batchMeterStartBtn" class="v2-batch-btn-primary" type="button" style="flex:1;min-width:140px;">🚀 開始解析並定位標記</button>
+            <button id="batchMeterSampleBtn" class="v2-batch-btn-secondary" type="button">💡 載入範例</button>
+            <button id="batchMeterFileBtn" class="v2-batch-btn-secondary" type="button">📁 匯入檔案</button>
+            <input type="file" id="batchMeterFileInput" accept=".xlsx,.xls,.csv,.txt" style="display:none;" />
+          </div>
+
+          <div id="batchMeterProgress" class="v2-batch-progress" style="display:none;">
+            <div id="batchMeterProgressText" class="v2-batch-progress-text">準備定位...</div>
+            <div class="v2-batch-progress-bar">
+              <div id="batchMeterProgressFill" class="v2-batch-progress-fill" style="width:0%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: 結果清單與匯出操作 -->
+        <div class="v2-tab-pane" data-pane="list" data-panel="batch" hidden>
+          <div class="v2-batch-summary">
+            <span class="v2-batch-badge-item">總計 <strong id="batchTotalCount">0</strong> 筆</span>
+            <span class="v2-batch-badge-item is-green">🏠 門牌 <strong id="batchDoorplateCount">0</strong> 筆</span>
+            <span class="v2-batch-badge-item is-blue">⚡ 圖號 <strong id="batchGridCount">0</strong> 筆</span>
+          </div>
+
+          <div style="display:flex;gap:6px;margin:6px 0;">
+            <button id="batchFitBoundsBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;">🔍 全體視野</button>
+            <button id="batchExportBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;background:#f0fdf4;color:#166534;border-color:#bbf7d0;">📥 匯出 Excel</button>
+            <button id="batchClearAllBtn" class="v2-batch-btn-secondary" type="button" style="font-size:11px;color:#dc2626;">🗑️ 清空</button>
+          </div>
+
+          <div id="batchMeterList" class="v2-batch-list"></div>
+        </div>
+
+        <p class="v2-cadastre-disclaimer" style="margin-top:auto;padding-top:6px;">定位結果依公部門電子門牌與台電圖資反推，僅供工作查對與巡檢導航參考。</p>
       </div>
     </section>
 
@@ -652,6 +717,7 @@
     <script src="src/utils/bookmark-db.js"></script>
     <script src="cadastre.js"></script>
     <script src="address-search.js"></script>
+    <script src="batch-meter.js"></script>
     <script src="sync.js"></script>
     <script>
     /* 版本對帳：主程式 5 秒內沒開機（舊 JS 配新殼 / 載入失敗）就跳橫幅請重整，

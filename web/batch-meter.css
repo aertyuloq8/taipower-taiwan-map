@@ -1,0 +1,197 @@
+/* 批次電表清單標記面板樣式 */
+.v2-batch-panel {
+  background: #fff;
+  border: 1px solid var(--line, #cbd5e1);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  display: none;
+  flex-direction: column;
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  max-height: calc(100vh - 80px);
+  max-height: calc(100dvh - 80px);
+  overflow: hidden;
+  position: fixed;
+  top: calc(60px + env(safe-area-inset-top, 0px));
+  width: min(450px, calc(100vw - 20px));
+  z-index: 1040;
+}
+.v2-batch-panel.is-open { display: flex; }
+
+.v2-batch-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 12px;
+  min-height: 0;
+  flex: 1;
+}
+
+.v2-batch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+}
+.v2-batch-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f766e;
+}
+.v2-batch-close {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #64748b;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.v2-batch-guide {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.v2-batch-textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  resize: vertical;
+  min-height: 110px;
+  box-sizing: border-box;
+}
+
+.v2-batch-btn-primary {
+  background: #0f766e;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.v2-batch-btn-primary:hover { background: #115e59; }
+
+.v2-batch-btn-secondary {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.v2-batch-btn-secondary:hover { background: #e2e8f0; }
+
+.v2-batch-progress {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.v2-batch-progress-text {
+  font-size: 11px;
+  color: #0f766e;
+  font-weight: 700;
+}
+.v2-batch-progress-bar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.v2-batch-progress-fill {
+  height: 100%;
+  background: #0f766e;
+  transition: width 0.2s ease;
+}
+
+.v2-batch-summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.v2-batch-badge-item {
+  background: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #475569;
+}
+.v2-batch-badge-item.is-green { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.v2-batch-badge-item.is-blue { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.v2-batch-badge-item.is-amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+
+.v2-batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: calc(100vh - 280px);
+  min-height: 80px;
+}
+.v2-batch-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.v2-batch-item:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+  transform: translateY(-1px);
+}
+.v2-batch-item-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f766e;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.v2-batch-item-meta {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* Custom numbered map markers */
+.batch-marker-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  border: 2px solid #fff;
+  width: 26px;
+  height: 26px;
+}
+.batch-marker-pin.is-doorplate {
+  background: #059669; /* 綠色：電子門牌定位 */
+}
+.batch-marker-pin.is-grid {
+  background: #2563eb; /* 藍色：圖號座標定位 */
+}
+.batch-marker-pin.is-fallback {
+  background: #d97706; /* 橘色：門牌查無，轉用圖號 */
+}
