@@ -1,9 +1,9 @@
-/* 批次電表清單標記面板樣式 */
+/* 批次電表清單標記面板樣式 (起點、邊界與尺寸完全與設備、地籍、門牌一致) */
 .v2-batch-panel {
   background: #fff;
   border: 1px solid var(--line, #cbd5e1);
   border-radius: 12px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow);
   display: none;
   flex-direction: column;
   left: calc(10px + env(safe-area-inset-left, 0px));
@@ -12,10 +12,30 @@
   overflow: hidden;
   position: fixed;
   top: calc(60px + env(safe-area-inset-top, 0px));
-  width: min(450px, calc(100vw - 20px));
-  z-index: 1040;
+  width: min(420px, calc(100vw - 20px));
+  z-index: calc(var(--control-z, 1000) + 20);
 }
 .v2-batch-panel.is-open { display: flex; }
+
+@media (max-width: 768px) {
+  .v2-batch-panel {
+    border-radius: 14px;
+    max-height: calc(100dvh - 74px);
+    top: calc(64px + env(safe-area-inset-top, 0px));
+    width: min(420px, calc(100vw - 20px));
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .v2-batch-panel {
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    left: auto;
+    max-height: none;
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    top: calc(62px + env(safe-area-inset-top, 0px));
+    width: min(420px, calc(100vw - 20px));
+  }
+}
 
 .v2-batch-inner {
   display: flex;
@@ -413,174 +433,157 @@
   font-weight: 600;
 }
 
-/* 控制晶片按鈕 (Chips) */
-.v2-batch-controls-row {
+/* 三合一行：[設備標籤] [地址標籤] [條件篩選] (平分整行，極致省空間) */
+.v2-batch-trio-row {
   display: flex;
   gap: 6px;
-  align-items: center;
-  padding: 5px 8px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 11px;
+  align-items: stretch;
+  margin: 4px 0 6px;
   box-sizing: border-box;
 }
-.v2-batch-btn-chip {
-  flex: 1;
-  background: #fff;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
-  padding: 4px 6px;
-  font-size: 11px;
+.v2-batch-trio-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 4px;
+  font-size: 12px;
   font-weight: 700;
+  border-radius: 6px;
   cursor: pointer;
-  color: #334155;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  transition: all 0.15s ease;
+  gap: 4px;
   white-space: nowrap;
+  user-select: none;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
 }
-.v2-batch-btn-chip:hover {
-  background: #f1f5f9;
+.v2-batch-trio-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
 }
-.v2-batch-btn-chip.is-active {
+.v2-batch-trio-btn.is-active {
   background: #f0fdf4;
   border-color: #86efac;
   color: #166534;
 }
-.v2-batch-btn-chip.is-hidden-state {
+.v2-batch-trio-btn.is-hidden-state {
   background: #fff1f2;
   border-color: #fca5a5;
   color: #991b1b;
 }
 
-/* 跨裝置備份折疊手風琴 (預設收起節省手機空間) */
-.v2-batch-backup-accordion {
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
+/* 篩選觸發按鈕 */
+.v2-batch-filter-trio-btn {
   background: #f8fafc;
-  padding: 4px 8px;
-  transition: all 0.2s ease;
-  box-sizing: border-box;
+  border-color: #cbd5e1;
+  color: #0f766e;
 }
-.v2-batch-backup-accordion[open] {
-  background: #f1f5f9;
-  border-style: solid;
-  border-color: #94a3b8;
-  padding-bottom: 6px;
+.v2-batch-filter-trio-btn:hover {
+  background: #ecfdf5;
+  border-color: #86efac;
 }
-.v2-batch-backup-summary {
+.v2-batch-filter-trio-btn.has-filter {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 118, 110, 0.25);
+}
+.v2-batch-filter-trio-badge {
+  background: #059669;
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.v2-batch-filter-trio-btn.has-filter .v2-batch-filter-trio-badge {
+  background: #ffffff;
+  color: #0f766e;
+}
+
+/* 巡視紀錄抽屜風格折疊卡片 (.panel-fold) */
+.v2-batch-fold {
+  background: #f8fafc;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  transition: all 0.15s ease;
+}
+.v2-batch-fold[open] {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.v2-batch-fold > summary {
+  align-items: center;
+  color: var(--accent-dark, #0f766e);
   cursor: pointer;
   display: flex;
+  font-size: 12px;
+  font-weight: bold;
   justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: #334155;
+  list-style: none;
+  min-height: 36px;
+  padding: 6px 10px;
   user-select: none;
   outline: none;
-  list-style: none;
 }
-.v2-batch-backup-summary::-webkit-details-marker {
+.v2-batch-fold > summary::-webkit-details-marker {
   display: none;
 }
-.v2-batch-backup-arrow {
-  font-size: 10px;
-  color: #64748b;
-  transition: transform 0.2s ease;
+.v2-batch-fold > summary::after {
+  color: var(--muted, #94a3b8);
+  content: "▶";
+  font-size: 9px;
+  transition: transform 0.15s ease;
 }
-.v2-batch-backup-accordion[open] .v2-batch-backup-arrow {
-  transform: rotate(180deg);
+.v2-batch-fold[open] > summary::after {
+  transform: rotate(90deg);
+}
+.v2-batch-fold > .panel-fold-body {
+  padding: 0 8px 8px;
 }
 
-/* 跨裝置與備份工具列 (分組整齊對稱版) */
-.v2-batch-backup-container {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 6px 0 0;
-  border-top: 1px solid #e2e8f0;
-  margin-top: 6px;
-}
-.v2-batch-btn-row {
+/* 折疊內動作按鈕群組 */
+.v2-batch-fold .folder-btn-group {
   display: flex;
   gap: 6px;
-  width: 100%;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
 }
-.v2-batch-btn-sub {
-  flex: 1;
-  min-height: 29px;
-  padding: 4px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 6px;
-  cursor: pointer;
-  text-align: center;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  box-sizing: border-box;
+.v2-batch-fold .folder-btn-group:last-child {
+  margin-bottom: 0;
 }
-.v2-batch-btn-sub.is-local {
-  background: #f0fdf4;
-  color: #166534;
-  border: 1px solid #86efac;
-}
-.v2-batch-btn-sub.is-local:hover {
-  background: #dcfce7;
-  border-color: #4ade80;
-}
-.v2-batch-btn-sub.is-cloud {
-  background: #fff7ed;
-  color: #c2410c;
-  border: 1px solid #fdba74;
-}
-.v2-batch-btn-sub.is-cloud:hover {
-  background: #ffedd5;
-  border-color: #fb923c;
-}
-.v2-batch-btn-sub.is-danger {
-  background: #fef2f2;
-  color: #dc2626;
-  border: 1px solid #fecdd3;
-}
-.v2-batch-btn-sub.is-danger:hover {
-  background: #fee2e2;
-  border-color: #f87171;
-}
-
-/* 雲端列之下：專屬多條件篩選大按鈕 */
-.v2-batch-btn-filter-main {
-  width: 100%;
-  min-height: 34px;
-  background: #f0fdf4;
-  color: #065f46;
-  border: 1px solid #86efac;
-  border-radius: 8px;
+.v2-batch-fold .btn-action {
+  flex: 1 1 80px;
+  min-height: 30px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
+  border-radius: 5px;
+  background: #ffffff;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  transition: all 0.15s ease;
+  gap: 3px;
+  padding: 2px 6px;
+  white-space: nowrap;
   box-sizing: border-box;
+  transition: all 0.15s ease;
 }
-.v2-batch-btn-filter-main:hover {
-  background: #dcfce7;
-  border-color: #4ade80;
+.v2-batch-fold .btn-action:hover {
+  filter: brightness(0.96);
 }
-.v2-batch-btn-filter-main.is-active {
-  background: #0f766e;
-  color: #ffffff;
-  border-color: #0d9488;
-  box-shadow: 0 2px 5px rgba(15, 118, 110, 0.25);
+.v2-batch-btn-view {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px dashed #cbd5e1;
 }
 
 /* 舊樣式相容 */

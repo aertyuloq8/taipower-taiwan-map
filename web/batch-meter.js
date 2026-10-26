@@ -670,11 +670,13 @@
     state.bgLabelsHidden = hidden;
     if (!controls.toggleBgLabelsBtn) return;
     if (hidden) {
-      controls.toggleBgLabelsBtn.textContent = "🚫 設備標籤：已隱藏";
+      controls.toggleBgLabelsBtn.textContent = "🚫 設備標籤";
+      controls.toggleBgLabelsBtn.title = "底圖台電設備標籤：已隱藏（點擊顯示）";
       controls.toggleBgLabelsBtn.classList.add("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.remove("is-active");
     } else {
-      controls.toggleBgLabelsBtn.textContent = "👁️ 設備標籤：顯示中";
+      controls.toggleBgLabelsBtn.textContent = "👁️ 設備標籤";
+      controls.toggleBgLabelsBtn.title = "底圖台電設備標籤：顯示中（點擊隱藏）";
       controls.toggleBgLabelsBtn.classList.remove("is-hidden-state");
       controls.toggleBgLabelsBtn.classList.add("is-active");
     }
@@ -684,7 +686,8 @@
   function toggleBatchLabels(force) {
     state.showLabels = typeof force === "boolean" ? force : !state.showLabels;
     if (controls.toggleLabelsBtn) {
-      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址標籤：顯示中" : "🏷️ 地址標籤：已隱藏";
+      controls.toggleLabelsBtn.textContent = state.showLabels ? "🏷️ 地址標籤" : "🙈 地址標籤";
+      controls.toggleLabelsBtn.title = state.showLabels ? "批次地址標籤與標記：顯示中（點擊隱藏）" : "批次地址標籤與標記：已隱藏（點擊顯示）";
       controls.toggleLabelsBtn.classList.toggle("is-active", state.showLabels);
       controls.toggleLabelsBtn.classList.toggle("is-hidden-state", !state.showLabels);
     }
@@ -833,7 +836,7 @@
     // 篩選按鈕徽章與樣式
     if (controls.filterBadge) {
       if (isFiltering) {
-        controls.filterBadge.textContent = `${visibleCount}/${total}`;
+        controls.filterBadge.textContent = String(visibleCount);
         controls.filterBadge.style.display = "inline-block";
       } else {
         controls.filterBadge.style.display = "none";
@@ -841,15 +844,10 @@
     }
     if (controls.filterBtn) {
       controls.filterBtn.classList.toggle("is-active", isFiltering);
-      if (isFiltering) {
-        controls.filterBtn.style.background = "#0f766e";
-        controls.filterBtn.style.color = "#ffffff";
-        controls.filterBtn.style.borderColor = "#0d9488";
-      } else {
-        controls.filterBtn.style.background = "#f0fdf4";
-        controls.filterBtn.style.color = "#065f46";
-        controls.filterBtn.style.borderColor = "#bbf7d0";
-      }
+      controls.filterBtn.classList.toggle("has-filter", isFiltering);
+      controls.filterBtn.style.background = "";
+      controls.filterBtn.style.color = "";
+      controls.filterBtn.style.borderColor = "";
     }
 
     // 篩選狀態提示列
