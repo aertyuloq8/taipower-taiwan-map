@@ -235,11 +235,13 @@
       const hidden = b.visible === false;
       const title = b.addr || b.address || b.custNo || "門牌標記";
       let detail = b.detail || "";
-      if (!detail && (b.custNo || b.pole || b.code)) {
+      if (!detail && (b.custNo || b.pole || b.code || b.meterNo || b.inspectTerm)) {
         const parts = [];
         if (b.custNo) parts.push(`電號: ${b.custNo}`);
         if (b.pole) parts.push(`桿名: ${b.pole}`);
         if (b.code) parts.push(`圖號: ${b.code}`);
+        if (b.meterNo) parts.push(`表號: ${b.meterNo}`);
+        if (b.inspectTerm) parts.push(`期限: ${b.inspectTerm}`);
         detail = parts.join(" · ");
       }
       return `
@@ -276,11 +278,13 @@
       try {
         const title = b.addr || b.address || b.custNo || "門牌標記";
         let detail = b.detail || "";
-        if (!detail && (b.custNo || b.pole || b.code)) {
+        if (!detail && (b.custNo || b.pole || b.code || b.meterNo || b.inspectTerm)) {
           const parts = [];
           if (b.custNo) parts.push(`電號: ${b.custNo}`);
           if (b.pole) parts.push(`桿名: ${b.pole}`);
           if (b.code) parts.push(`圖號: ${b.code}`);
+          if (b.meterNo) parts.push(`表號: ${b.meterNo}`);
+          if (b.inspectTerm) parts.push(`期限: ${b.inspectTerm}`);
           detail = parts.join(" · ");
         }
         const detailHtml = detail ? `<div style="font-size:12px;color:#64748b;margin-top:2px;">${escapeHtml(detail)}</div>` : "";

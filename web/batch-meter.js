@@ -1088,14 +1088,19 @@
       let added = 0;
       state.records.forEach((r, i) => {
         const id = `bm_batch_${Date.now()}_${i}`;
-        const addrText = r.addr || r.custNo || "批次電表標記";
+        const addrText = r.addr || r.custNo || r.code || "批次電表標記";
         const poleText = r.pole || "";
         const codeText = r.code || "";
         const custNoText = r.custNo || "";
+        const meterNoText = r.meterNo || "";
+        const inspectTermText = r.inspectTerm || "";
+
         const detailParts = [];
-        if (custNoText) detailParts.push(`電號: ${custNoText}`);
+        if (custNoText && addrText !== custNoText) detailParts.push(`電號: ${custNoText}`);
         if (poleText) detailParts.push(`桿名: ${poleText}`);
         if (codeText) detailParts.push(`圖號: ${codeText}`);
+        if (meterNoText) detailParts.push(`表號: ${meterNoText}`);
+        if (inspectTermText) detailParts.push(`期限: ${inspectTermText}`);
         const detailText = detailParts.join(" · ");
 
         existing.unshift({
@@ -1105,6 +1110,8 @@
           custNo: custNoText,
           pole: poleText,
           code: codeText,
+          meterNo: meterNoText,
+          inspectTerm: inspectTermText,
           detail: detailText,
           la: r.lat,
           ln: r.lng,
