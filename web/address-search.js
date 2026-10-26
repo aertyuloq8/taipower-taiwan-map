@@ -451,6 +451,10 @@
     if(open){ closeOtherFloatingPanels(); controls.input.focus(); }
   }
   document.addEventListener("v2-inspection-open", ()=>setPanelOpen(false));
+  document.addEventListener("v2-cadastre-open", ()=>setPanelOpen(false));
+  document.addEventListener("v2-batch-open", ()=>setPanelOpen(false));
+  document.addEventListener("v2-search-open", ()=>setPanelOpen(false));
+  document.addEventListener("v2-layer-open", ()=>setPanelOpen(false));
   controls.toggle.addEventListener("click", ()=> setPanelOpen(!controls.panel.classList.contains("is-open")));
   controls.close?.addEventListener("click", ()=> setPanelOpen(false));
   controls.searchBtn?.addEventListener("click", ()=> performSearch());

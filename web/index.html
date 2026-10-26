@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>全台土部設備分布地圖</title>
+    <title>全台土木設備分布地圖</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icon-192.png">
     <link rel="icon" type="image/png" href="icon-192.png">
@@ -375,8 +375,11 @@
             <button id="batchClearAllBtn" class="v2-batch-btn-secondary" type="button" style="font-size:11px;color:#dc2626;">🗑️ 清空</button>
           </div>
 
-          <!-- 傳送到手機與雲端備份工具列 -->
+          <!-- 跨裝置與檔案備份工具列 (支援本機檔案與 Google Drive 雙備份) -->
           <div class="v2-batch-cloud-bar">
+            <button id="batchDownloadJsonBtn" class="v2-batch-btn-file" type="button" title="下載本機備份檔 (免登入、公司內網最佳)">💾 下載備份檔</button>
+            <button id="batchRestoreJsonBtn" class="v2-batch-btn-file" type="button" title="讀取本機備份檔 (免登入)">📂 讀取備份檔</button>
+            <input type="file" id="batchJsonFileInput" accept=".json" style="display:none;" />
             <button id="batchDriveUploadBtn" class="v2-batch-btn-cloud" type="button" title="上傳至個人 Google 雲端硬碟">☁️ 上傳 Drive</button>
             <button id="batchDriveRestoreBtn" class="v2-batch-btn-cloud" type="button" title="從個人 Google 雲端硬碟還原">☁️ 從 Drive 還原</button>
             <button id="batchToBookmarksBtn" class="v2-batch-btn-star" type="button" title="轉存為門牌收藏">⭐ 存入門牌收藏</button>
@@ -443,7 +446,7 @@
       <aside id="panel" class="panel is-collapsed">
         <div id="panelDragHandle" class="panel-drag-handle" aria-hidden="true"><span class="panel-drag-handle-bar"></span></div>
         <header class="panel-head">
-          <div class="panel-title"><h1>全台土部設備分布地圖</h1></div>
+          <div class="panel-title"><h1>全台土木設備分布地圖</h1></div>
           <button id="panelCloseButton" class="panel-collapse-button" type="button" aria-label="收合巡檢紀錄面板" title="收合巡檢紀錄面板">▼</button>
         </header>
         <nav class="tab-nav">
@@ -728,10 +731,10 @@
       <div id="defectEditStatus" style="font-size:11px; color:#64748b; min-height:14px; padding:0 10px 8px; flex-shrink:0;"></div>
     </section>
 
-    </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 
-        <script type="module" src="./src/main.js"></script>
+        <script src="panel-mutex.js"></script>
+    <script type="module" src="./src/main.js"></script>
     <script src="cadastre-config.js"></script>
     <script src="src/utils/app-db.js"></script>
     <script src="src/utils/bookmark-db.js"></script>

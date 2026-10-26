@@ -380,6 +380,13 @@
     if (mapSearchToggle && mapSearchToggle.classList.contains("is-active")) mapSearchToggle.click();
   }
 
+  document.addEventListener("v2-inspection-open", () => closePanel());
+  document.addEventListener("v2-cadastre-open", () => closePanel());
+  document.addEventListener("v2-address-open", () => closePanel());
+  document.addEventListener("v2-batch-open", () => closePanel());
+  document.addEventListener("v2-search-open", () => closePanel());
+  document.addEventListener("v2-layer-open", () => closePanel());
+
   async function openPanel() {
     closeOtherFloatingPanels();
     panel.classList.add("is-open");

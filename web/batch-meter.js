@@ -303,6 +303,9 @@
     toBookmarksBtn: null,
     clearInputBtn: null,
     clearInputBtnTop: null,
+    downloadJsonBtn: null,
+    restoreJsonBtn: null,
+    jsonFileInput: null,
   };
 
   function initControls() {
@@ -334,24 +337,35 @@
     controls.driveUploadBtn = document.getElementById("batchDriveUploadBtn");
     controls.driveRestoreBtn = document.getElementById("batchDriveRestoreBtn");
     controls.toBookmarksBtn = document.getElementById("batchToBookmarksBtn");
+    controls.downloadJsonBtn = document.getElementById("batchDownloadJsonBtn");
+    controls.restoreJsonBtn = document.getElementById("batchRestoreJsonBtn");
+    controls.jsonFileInput = document.getElementById("batchJsonFileInput");
   }
 
-  // 關閉其他浮動面板
+  // 關閉其他面板 (使用全域互斥管理器)
   function closeOtherPanels() {
-    const s = document.getElementById("mapSearchPanel"), st = document.getElementById("mapSearchToggle");
-    const lp = document.getElementById("layerMenuPanel"), lt = document.getElementById("layerMenuToggle");
-    const cp = document.getElementById("v2CadastrePanel"), ct = document.getElementById("v2CadastreToggle");
-    const ap = document.getElementById("v2AddressPanel"), at = document.getElementById("v2AddressToggle");
-    const sp = document.getElementById("v2SyncPanel"), spt = document.getElementById("v2SyncToggle");
-    s?.classList.remove("is-open"); st?.classList.remove("is-active"); st?.setAttribute("aria-expanded", "false");
-    if (lp) lp.hidden = true; lt?.classList.remove("is-active"); lt?.setAttribute("aria-expanded", "false");
-    cp?.classList.remove("is-open"); cp?.setAttribute("aria-hidden", "true"); ct?.classList.remove("is-active"); ct?.setAttribute("aria-expanded", "false");
-    ap?.classList.remove("is-open"); ap?.setAttribute("aria-hidden", "true"); at?.classList.remove("is-active"); at?.setAttribute("aria-expanded", "false");
-    sp?.classList.remove("is-open"); sp?.setAttribute("aria-hidden", "true"); spt?.classList.remove("is-active"); spt?.setAttribute("aria-expanded", "false");
+    if (window.__closeAllPanelsExcept) {
+      window.__closeAllPanelsExcept("batch");
+    } else {
+      const s = document.getElementById("mapSearchPanel"), st = document.getElementById("mapSearchToggle");
+      const lp = document.getElementById("layerMenuPanel"), lt = document.getElementById("layerMenuToggle");
+      const cp = document.getElementById("v2CadastrePanel"), ct = document.getElementById("v2CadastreToggle");
+      const ap = document.getElementById("v2AddressPanel"), at = document.getElementById("v2AddressToggle");
+      const sp = document.getElementById("v2SyncPanel"), spt = document.getElementById("v2SyncToggle");
+      s?.classList.remove("is-open"); st?.classList.remove("is-active"); st?.setAttribute("aria-expanded", "false");
+      if (lp) lp.hidden = true; lt?.classList.remove("is-active"); lt?.setAttribute("aria-expanded", "false");
+      cp?.classList.remove("is-open"); cp?.setAttribute("aria-hidden", "true"); ct?.classList.remove("is-active"); ct?.setAttribute("aria-expanded", "false");
+      ap?.classList.remove("is-open"); ap?.setAttribute("aria-hidden", "true"); at?.classList.remove("is-active"); at?.setAttribute("aria-expanded", "false");
+      sp?.classList.remove("is-open"); sp?.setAttribute("aria-hidden", "true"); spt?.classList.remove("is-active"); spt?.setAttribute("aria-expanded", "false");
+    }
   }
 
   function setPanelOpen(open) {
     if (!controls.panel || !controls.toggle) return;
+    if (open && !controls.panel.classList.contains("is-open")) {
+      const e = new CustomEvent("v2-batch-open", { cancelable: true });
+      if (!document.dispatchEvent(e)) return;
+    }
     controls.panel.classList.toggle("is-open", open);
     controls.panel.setAttribute("aria-hidden", String(!open));
     controls.toggle.classList.toggle("is-active", open);
@@ -725,6 +739,77 @@
     }
   }
 
+  // --- 本機檔案備份與讀取 (免登入、公司內網最佳、外勤手機零門檻互傳) ---
+  function downloadBatchJson() {
+    if (!state.records.length) {
+      showToast("目前沒有批次電表標記可下載！", "dup");
+      return;
+    }
+    const cleanRecords = state.records.map(r => ({
+      custNo: r.custNo || "",
+      addr: r.addr || "",
+      pole: r.pole || "",
+      code: r.code || "",
+      meterNo: r.meterNo || "",
+      inspectTerm: r.inspectTerm || "",
+      locType: r.locType || "grid",
+      locLabel: r.locLabel || "",
+      lat: r.lat,
+      lng: r.lng,
+      raw: r.raw || null
+    }));
+    const jsonStr = JSON.stringify(cleanRecords, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const timeStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    const filename = `批次電表標記_${timeStr}.json`;
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    showToast(`💾 已下載 ${cleanRecords.length} 筆電表備份檔 (${filename})！`);
+  }
+
+  function restoreBatchJson(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed)) {
+          showToast("備份檔格式不符（須為 JSON 陣列）！", "error");
+          return;
+        }
+        if (!parsed.length) {
+          showToast("備份檔為空資料！", "dup");
+          return;
+        }
+        state.records = parsed;
+        localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(state.records));
+        hideBackgroundPoleLabels();
+        renderBatchMarkers();
+        renderBatchList();
+        updateSummaryBadges();
+        switchTab("list");
+        const map = getMap();
+        if (map && state.layerGroup) {
+          const bounds = state.layerGroup.getBounds();
+          if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
+        }
+        showToast(`📂 成功還原 ${state.records.length} 筆電表標記！`);
+      } catch (err) {
+        showToast("解析備份檔失敗：" + err.message, "error");
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
   // --- Google Drive 備份與還原 ---
   function uploadBatchToDrive() {
     if (!state.records.length) {
@@ -799,6 +884,8 @@
     document.addEventListener("v2-cadastre-open", () => setPanelOpen(false));
     document.addEventListener("v2-address-open", () => setPanelOpen(false));
     document.addEventListener("v2-inspection-open", () => setPanelOpen(false));
+    document.addEventListener("v2-search-open", () => setPanelOpen(false));
+    document.addEventListener("v2-layer-open", () => setPanelOpen(false));
 
     controls.toggle?.addEventListener("click", () => setPanelOpen(!controls.panel?.classList.contains("is-open")));
     controls.close?.addEventListener("click", () => setPanelOpen(false));
@@ -869,6 +956,15 @@
     // 標籤控制
     controls.toggleBgLabelsBtn?.addEventListener("click", toggleBackgroundPoleLabels);
     controls.toggleLabelsBtn?.addEventListener("click", () => toggleBatchLabels());
+
+    // 本機檔案備份與還原 (公司內網 / 手機互傳)
+    controls.downloadJsonBtn?.addEventListener("click", downloadBatchJson);
+    controls.restoreJsonBtn?.addEventListener("click", () => controls.jsonFileInput?.click());
+    controls.jsonFileInput?.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) restoreBatchJson(file);
+      e.target.value = "";
+    });
 
     // 雲端備份與門牌收藏
     controls.driveUploadBtn?.addEventListener("click", uploadBatchToDrive);

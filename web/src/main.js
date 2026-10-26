@@ -152,10 +152,15 @@ window.__appBooted = true;
         const willOpen = layerMenuPanel?.hidden !== false;
         if (!layerMenuPanel || !layerMenuToggle) return;
         if (willOpen) {
-          closeMapSearchPanel();
-          closeAddressPanel();
-          window.__closeSyncPanel && window.__closeSyncPanel();
-          if (!collapsePanelControl()) return;
+          if (window.__closeAllPanelsExcept) {
+            window.__closeAllPanelsExcept("layer");
+          } else {
+            closeMapSearchPanel();
+            closeAddressPanel();
+            window.__closeSyncPanel && window.__closeSyncPanel();
+            if (!collapsePanelControl()) return;
+          }
+          document.dispatchEvent(new CustomEvent("v2-layer-open"));
         }
         layerMenuPanel.hidden = !willOpen;
         layerMenuToggle.setAttribute("aria-expanded", String(willOpen));
@@ -178,19 +183,28 @@ window.__appBooted = true;
         return didCollapse;
       }
       function collapseFloatingControls() {
-        closeMapSearchPanel();
-        closeLayerMenu();
-        closeAddressPanel();
-        collapsePanelControl();
+        if (window.__closeFloatingPanels) {
+          window.__closeFloatingPanels();
+        } else {
+          closeMapSearchPanel();
+          closeLayerMenu();
+          closeAddressPanel();
+          collapsePanelControl();
+        }
       }
       mapSearchToggle.addEventListener("click", () => {
         disableRouteLayerForTools();
         const willOpen = !mapSearchPanel.classList.contains("is-open");
         if (willOpen) {
-          closeLayerMenu();
-          window.__closeSyncPanel && window.__closeSyncPanel();
-          closeAddressPanel();
-          if (!collapsePanelControl()) return;
+          if (window.__closeAllPanelsExcept) {
+            window.__closeAllPanelsExcept("search");
+          } else {
+            closeLayerMenu();
+            window.__closeSyncPanel && window.__closeSyncPanel();
+            closeAddressPanel();
+            if (!collapsePanelControl()) return;
+          }
+          document.dispatchEvent(new CustomEvent("v2-search-open"));
         }
         mapSearchPanel.classList.toggle("is-open", willOpen);
         syncMapSearchState();
@@ -3081,8 +3095,12 @@ window.__appBooted = true;
         document.querySelector(".app").classList.toggle("is-panel-collapsed", collapsed);
         document.body.classList.toggle("is-panel-open", !collapsed);
         if (!collapsed) {
-          closeMapSearchPanel();
-          closeLayerMenu();
+          if (window.__closeAllPanelsExcept) {
+            window.__closeAllPanelsExcept("inspection");
+          } else {
+            closeMapSearchPanel();
+            closeLayerMenu();
+          }
           document.dispatchEvent(new CustomEvent("v2-inspection-open"));
         }
         syncPanelToggleState();
@@ -3093,6 +3111,10 @@ window.__appBooted = true;
       // The inspection sidebar and the V2 cadastre window occupy the same
       // mobile workspace.  Opening one must close the other.
       document.addEventListener("v2-cadastre-open", event => {
+        if (!inspectionPanel || inspectionPanel.classList.contains("is-collapsed")) return;
+        if (!setPanelCollapsed(true)) event.preventDefault();
+      });
+      document.addEventListener("v2-batch-open", event => {
         if (!inspectionPanel || inspectionPanel.classList.contains("is-collapsed")) return;
         if (!setPanelCollapsed(true)) event.preventDefault();
       });

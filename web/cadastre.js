@@ -157,28 +157,38 @@
   }
 
   function closeOtherFloatingPanels() {
-    const search = document.getElementById("mapSearchPanel");
-    const searchToggle = document.getElementById("mapSearchToggle");
-    const layerPanel = document.getElementById("layerMenuPanel");
-    const layerToggle = document.getElementById("layerMenuToggle");
-    const addrPanel = document.getElementById("v2AddressPanel");
-    const addrToggle = document.getElementById("v2AddressToggle");
-    const syncPanel = document.getElementById("v2SyncPanel");
-    const syncToggle = document.getElementById("v2SyncToggle");
-    search?.classList.remove("is-open");
-    searchToggle?.classList.remove("is-active");
-    searchToggle?.setAttribute("aria-expanded", "false");
-    if (layerPanel) layerPanel.hidden = true;
-    layerToggle?.classList.remove("is-active");
-    layerToggle?.setAttribute("aria-expanded", "false");
-    addrPanel?.classList.remove("is-open");
-    addrPanel?.setAttribute("aria-hidden", "true");
-    addrToggle?.classList.remove("is-active");
-    addrToggle?.setAttribute("aria-expanded", "false");
-    syncPanel?.classList.remove("is-open");
-    syncPanel?.setAttribute("aria-hidden", "true");
-    syncToggle?.classList.remove("is-active");
-    syncToggle?.setAttribute("aria-expanded", "false");
+    if (window.__closeAllPanelsExcept) {
+      window.__closeAllPanelsExcept("cadastre");
+    } else {
+      const search = document.getElementById("mapSearchPanel");
+      const searchToggle = document.getElementById("mapSearchToggle");
+      const layerPanel = document.getElementById("layerMenuPanel");
+      const layerToggle = document.getElementById("layerMenuToggle");
+      const addrPanel = document.getElementById("v2AddressPanel");
+      const addrToggle = document.getElementById("v2AddressToggle");
+      const batchPanel = document.getElementById("v2BatchMeterPanel");
+      const batchToggle = document.getElementById("v2BatchMeterToggle");
+      const syncPanel = document.getElementById("v2SyncPanel");
+      const syncToggle = document.getElementById("v2SyncToggle");
+      search?.classList.remove("is-open");
+      searchToggle?.classList.remove("is-active");
+      searchToggle?.setAttribute("aria-expanded", "false");
+      if (layerPanel) layerPanel.hidden = true;
+      layerToggle?.classList.remove("is-active");
+      layerToggle?.setAttribute("aria-expanded", "false");
+      addrPanel?.classList.remove("is-open");
+      addrPanel?.setAttribute("aria-hidden", "true");
+      addrToggle?.classList.remove("is-active");
+      addrToggle?.setAttribute("aria-expanded", "false");
+      batchPanel?.classList.remove("is-open");
+      batchPanel?.setAttribute("aria-hidden", "true");
+      batchToggle?.classList.remove("is-active");
+      batchToggle?.setAttribute("aria-expanded", "false");
+      syncPanel?.classList.remove("is-open");
+      syncPanel?.setAttribute("aria-hidden", "true");
+      syncToggle?.classList.remove("is-active");
+      syncToggle?.setAttribute("aria-expanded", "false");
+    }
   }
 
   function setPanelOpen(open) {
@@ -203,6 +213,10 @@
   }
 
   document.addEventListener("v2-inspection-open", () => setPanelOpen(false));
+  document.addEventListener("v2-batch-open", () => setPanelOpen(false));
+  document.addEventListener("v2-address-open", () => setPanelOpen(false));
+  document.addEventListener("v2-search-open", () => setPanelOpen(false));
+  document.addEventListener("v2-layer-open", () => setPanelOpen(false));
 
   function normalizeCatalog(payload) {
     const seenCities = new Set();
