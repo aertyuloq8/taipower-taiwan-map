@@ -382,9 +382,18 @@
           </div>
 
           <div style="display:flex;gap:6px;margin:4px 0 6px;">
+            <button id="batchFilterBtn" class="v2-batch-btn-secondary" type="button" style="flex:1.2;font-size:11px;background:#f0fdf4;color:#065f46;border-color:#bbf7d0;font-weight:700;">
+              🌪️ 條件篩選 <span id="batchFilterBadge" style="display:none;background:#059669;color:#fff;border-radius:10px;padding:0 5px;font-size:10px;margin-left:2px;">0</span>
+            </button>
             <button id="batchFitBoundsBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;">🔍 全體視野</button>
-            <button id="batchMeterExportBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;background:#f0fdf4;color:#166534;border-color:#bbf7d0;">📥 匯出 Excel</button>
+            <button id="batchMeterExportBtn" class="v2-batch-btn-secondary" type="button" style="flex:1;font-size:11px;background:#f0fdf4;color:#166534;border-color:#bbf7d0;">📥 匯出</button>
             <button id="batchClearAllBtn" class="v2-batch-btn-secondary" type="button" style="font-size:11px;color:#dc2626;">🗑️ 清空</button>
+          </div>
+
+          <!-- 篩選生效時顯示之狀態提示列 -->
+          <div id="batchFilterActiveBar" style="display:none;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:5px 8px;margin:3px 0 6px;font-size:11px;color:#065f46;">
+            <span>🌪️ 篩選生效中：顯示 <strong id="batchFilterVisibleCount">0</strong> / <span id="batchFilterTotalCount">0</span> 筆</span>
+            <button id="batchFilterResetQuickBtn" type="button" style="background:none;border:none;color:#dc2626;font-size:11px;cursor:pointer;font-weight:700;text-decoration:underline;">✕ 重設篩選</button>
           </div>
 
           <!-- 跨裝置與檔案備份工具列 (支援本機檔案與 Google Drive 雙備份) -->
@@ -404,6 +413,33 @@
         <p class="v2-cadastre-disclaimer" style="margin-top:auto;padding-top:6px;">定位結果依公部門電子門牌與台電圖資反推，僅供工作查對與巡檢導航參考。</p>
       </div>
     </section>
+
+    <!-- 批次電表多條件篩選抽屜 (針對手機特別優化之 Bottom Sheet) -->
+    <div id="batchFilterDrawer" class="v2-batch-filter-drawer is-hidden" aria-hidden="true">
+      <div class="v2-batch-filter-backdrop" id="batchFilterBackdrop"></div>
+      <div class="v2-batch-filter-content">
+        <div class="v2-batch-filter-header">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:16px;">🎯</span>
+            <strong style="font-size:14px;color:#1e293b;">批次資料條件篩選</strong>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button id="batchFilterResetAllBtn" type="button" class="v2-filter-link-btn">重設全部</button>
+            <button id="batchFilterCloseBtn" type="button" class="v2-filter-close-btn" aria-label="關閉">✕</button>
+          </div>
+        </div>
+
+        <div class="v2-batch-filter-body" id="batchFilterBody">
+          <!-- 動態生成各欄位篩選分組，如：型式、契約、相別、定位型態等 -->
+        </div>
+
+        <div class="v2-batch-filter-footer">
+          <button id="batchFilterApplyBtn" type="button" class="v2-batch-filter-apply-btn">
+            確定套用 (符合 <span id="batchFilterMatchCount">0</span> 筆)
+          </button>
+        </div>
+      </div>
+    </div>
 
     <section id="v2SyncPanel" class="v2-sync-panel" aria-hidden="true" aria-label="裝置同步">
       <div class="v2-sync-inner">

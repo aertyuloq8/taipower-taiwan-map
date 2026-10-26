@@ -369,3 +369,197 @@
   background: #dcfce7;
   border-color: #4ade80;
 }
+
+/* ============================================================
+   批次多條件篩選抽屜 (針對手機螢幕特別優化之 Bottom Sheet)
+   ============================================================ */
+.v2-batch-filter-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: flex-end; /* 手機預設由底部滑出 */
+  justify-content: center;
+}
+.v2-batch-filter-drawer.is-hidden {
+  display: none !important;
+}
+.v2-batch-filter-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.v2-batch-filter-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 460px;
+  max-height: 85vh;
+  max-height: 85dvh;
+  background: #ffffff;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  animation: v2FilterSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+@media (min-width: 769px) {
+  .v2-batch-filter-drawer {
+    align-items: center;
+  }
+  .v2-batch-filter-content {
+    border-radius: 16px;
+    max-height: 80vh;
+    animation: v2FilterFadeIn 0.2s ease-out;
+  }
+}
+@keyframes v2FilterSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes v2FilterFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.v2-batch-filter-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+}
+.v2-filter-link-btn {
+  background: none;
+  border: none;
+  color: #0d9488;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.v2-filter-link-btn:hover {
+  background: #f0fdfa;
+}
+.v2-filter-close-btn {
+  background: #f1f5f9;
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+}
+.v2-batch-filter-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.v2-filter-group {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.v2-filter-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.v2-filter-group-title {
+  font-weight: 800;
+  font-size: 12px;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.v2-filter-group-actions {
+  display: flex;
+  gap: 6px;
+}
+.v2-filter-action-link {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: #0284c7;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.v2-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.v2-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 20px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  background: #ffffff;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  transition: all 0.12s ease;
+  min-height: 34px; /* 手機單手觸控友善 */
+  box-sizing: border-box;
+}
+.v2-filter-chip:active {
+  transform: scale(0.96);
+}
+.v2-filter-chip.is-active {
+  background: #0f766e;
+  color: #ffffff;
+  border-color: #0f766e;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 118, 110, 0.25);
+}
+.v2-filter-chip-count {
+  font-size: 10px;
+  opacity: 0.85;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.08);
+}
+.v2-filter-chip.is-active .v2-filter-chip-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+.v2-batch-filter-footer {
+  padding: 10px 14px;
+  border-top: 1px solid #f1f5f9;
+  background: #ffffff;
+}
+.v2-batch-filter-apply-btn {
+  width: 100%;
+  background: #0f766e;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(15, 118, 110, 0.3);
+  transition: background 0.15s ease;
+}
+.v2-batch-filter-apply-btn:hover {
+  background: #115e59;
+}
+

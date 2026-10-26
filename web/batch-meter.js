@@ -387,6 +387,19 @@
       // 標準化圖號座標
       code = code.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 
+      // 擷取所有原始欄位存入 extra 物件，作為動態多條件篩選之依據
+      const extra = {};
+      if (headerIdx !== -1 && rows[headerIdx]) {
+        rows[headerIdx].forEach((hName, cIdx) => {
+          const key = (hName || "").trim();
+          if (key && r[cIdx] !== undefined) {
+            extra[key] = String(r[cIdx]).trim();
+          }
+        });
+      }
+      if (pole && !extra["土木設備"]) extra["土木設備"] = pole;
+      if (inspectTerm && !extra["檢定期限"]) extra["檢定期限"] = inspectTerm;
+
       if (custNo || addr || code) {
         records.push({
           custNo,
@@ -395,6 +408,7 @@
           code,
           meterNo,
           inspectTerm,
+          extra,
           lat: null,
           lng: null,
           locType: null, // "doorplate" | "grid" | "fallback"
@@ -426,6 +440,7 @@
     isProcessing: false,
     showLabels: true,       // 是否顯示批次地址標籤與定位標記
     bgLabelsHidden: true,   // 是否已隱藏底圖設備標籤
+    activeFilters: {},      // 當前多條件篩選狀態: { [colKey]: Set([selectedValues]) }
   };
 
   const controls = {
@@ -451,6 +466,19 @@
     clearAllBtn: null,
     toggleBgLabelsBtn: null,
     toggleLabelsBtn: null,
+    filterBtn: null,
+    filterBadge: null,
+    filterActiveBar: null,
+    filterVisibleCount: null,
+    filterTotalCount: null,
+    filterResetQuickBtn: null,
+    filterDrawer: null,
+    filterBackdrop: null,
+    filterCloseBtn: null,
+    filterResetAllBtn: null,
+    filterBody: null,
+    filterApplyBtn: null,
+    filterMatchCount: null,
     driveUploadBtn: null,
     driveRestoreBtn: null,
     driveDeleteBtn: null,
@@ -488,6 +516,21 @@
 
     controls.toggleBgLabelsBtn = document.getElementById("batchToggleBgLabelsBtn");
     controls.toggleLabelsBtn = document.getElementById("batchToggleLabelsBtn");
+    controls.filterBtn = document.getElementById("batchFilterBtn");
+    controls.filterBadge = document.getElementById("batchFilterBadge");
+    controls.filterActiveBar = document.getElementById("batchFilterActiveBar");
+    controls.filterVisibleCount = document.getElementById("batchFilterVisibleCount");
+    controls.filterTotalCount = document.getElementById("batchFilterTotalCount");
+    controls.filterResetQuickBtn = document.getElementById("batchFilterResetQuickBtn");
+
+    controls.filterDrawer = document.getElementById("batchFilterDrawer");
+    controls.filterBackdrop = document.getElementById("batchFilterBackdrop");
+    controls.filterCloseBtn = document.getElementById("batchFilterCloseBtn");
+    controls.filterResetAllBtn = document.getElementById("batchFilterResetAllBtn");
+    controls.filterBody = document.getElementById("batchFilterBody");
+    controls.filterApplyBtn = document.getElementById("batchFilterApplyBtn");
+    controls.filterMatchCount = document.getElementById("batchFilterMatchCount");
+
     controls.driveUploadBtn = document.getElementById("batchDriveUploadBtn");
     controls.driveRestoreBtn = document.getElementById("batchDriveRestoreBtn");
     controls.driveDeleteBtn = document.getElementById("batchDriveDeleteBtn");
@@ -616,6 +659,310 @@
         map.removeLayer(state.layerGroup);
       }
     }
+  }
+
+  // ============================================================
+  // 多條件勾選篩選模組 (支援手機抽屜式操作、多條件勾選、地圖標記與清單聯動)
+  // ============================================================
+
+  // 自動探測資料中的可篩選欄位與各值分佈
+  function getFilterableDimensions() {
+    if (!state.records || !state.records.length) return [];
+    const candidates = new Map(); // colKey -> Map(val -> count)
+    const priorityKeys = ["型式", "契約", "相別", "定位型態", "檢定期限", "土木設備", "桿名", "營業區"];
+
+    state.records.forEach(r => {
+      const extra = r.extra || {};
+      for (const [k, rawVal] of Object.entries(extra)) {
+        if (!k) continue;
+        const v = String(rawVal === undefined || rawVal === null ? "" : rawVal).trim();
+        if (!v) continue;
+        if (k === "電號" || k === "用電地址" || k === "圖號座標" || k === "電表表號" || k === "編號") continue;
+        if (!candidates.has(k)) candidates.set(k, new Map());
+        const valMap = candidates.get(k);
+        valMap.set(v, (valMap.get(v) || 0) + 1);
+      }
+    });
+
+    const list = [];
+    for (const [key, valMap] of candidates.entries()) {
+      // 只要相異值數量 >= 2 且 <= 40（適合勾選，且不超過清單總數）
+      if (valMap.size >= 2 && valMap.size <= 40 && valMap.size <= state.records.length) {
+        const sortedValues = Array.from(valMap.entries()).map(([val, count]) => ({ val, count }));
+        // 數字或字串自然排序
+        sortedValues.sort((a, b) => {
+          const numA = Number(a.val), numB = Number(b.val);
+          if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+          return String(a.val).localeCompare(String(b.val), "zh-Hant");
+        });
+        list.push({ key, values: sortedValues });
+      }
+    }
+
+    // 依照台電常見業務優先順序排序
+    list.sort((a, b) => {
+      const idxA = priorityKeys.indexOf(a.key);
+      const idxB = priorityKeys.indexOf(b.key);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.key.localeCompare(b.key, "zh-Hant");
+    });
+
+    return list;
+  }
+
+  // 判定某筆記錄是否符合給定之篩選條件
+  function isRecordVisible(r, filterState) {
+    const filters = filterState || state.activeFilters;
+    if (!filters) return true;
+    for (const [key, selectedSet] of Object.entries(filters)) {
+      if (!selectedSet || !(selectedSet instanceof Set)) continue;
+      const val = String(r.extra?.[key] || "").trim();
+      if (!selectedSet.has(val)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // 套用當前篩選狀態至地圖標記與結果清單
+  function applyFilters() {
+    let visibleCount = 0;
+
+    state.records.forEach((r, idx) => {
+      const isVis = isRecordVisible(r);
+      r.filteredOut = !isVis;
+      if (isVis) visibleCount++;
+
+      // 1. 地圖 Marker 聯動
+      if (r.marker && state.layerGroup) {
+        if (isVis && state.showLabels) {
+          if (!state.layerGroup.hasLayer(r.marker)) {
+            state.layerGroup.addLayer(r.marker);
+          }
+          if (r.marker.getTooltip()) r.marker.openTooltip();
+        } else {
+          if (state.layerGroup.hasLayer(r.marker)) {
+            state.layerGroup.removeLayer(r.marker);
+          }
+        }
+      }
+
+      // 2. 清單卡片聯動
+      const card = controls.list?.querySelector(`.v2-batch-item[data-meter-idx="${idx}"]`);
+      if (card) {
+        card.style.display = isVis ? "" : "none";
+      }
+    });
+
+    updateFilterStatusUI(visibleCount);
+  }
+
+  // 更新篩選按鈕、狀態提示條與統計徽章 UI
+  function updateFilterStatusUI(visibleCount) {
+    if (visibleCount === undefined) {
+      visibleCount = state.records.filter(r => !r.filteredOut).length;
+    }
+    const total = state.records.length;
+    const dims = getFilterableDimensions();
+
+    // 計算是否有部分欄位被過濾
+    let activeDimCount = 0;
+    dims.forEach(dim => {
+      const set = state.activeFilters[dim.key];
+      if (set && set.size < dim.values.length) {
+        activeDimCount++;
+      }
+    });
+
+    const isFiltering = activeDimCount > 0;
+
+    // 篩選按鈕徽章與樣式
+    if (controls.filterBadge) {
+      if (isFiltering) {
+        controls.filterBadge.textContent = `${visibleCount}/${total}`;
+        controls.filterBadge.style.display = "inline-block";
+      } else {
+        controls.filterBadge.style.display = "none";
+      }
+    }
+    if (controls.filterBtn) {
+      controls.filterBtn.classList.toggle("is-active", isFiltering);
+      if (isFiltering) {
+        controls.filterBtn.style.background = "#0f766e";
+        controls.filterBtn.style.color = "#ffffff";
+        controls.filterBtn.style.borderColor = "#0d9488";
+      } else {
+        controls.filterBtn.style.background = "#f0fdf4";
+        controls.filterBtn.style.color = "#065f46";
+        controls.filterBtn.style.borderColor = "#bbf7d0";
+      }
+    }
+
+    // 篩選狀態提示列
+    if (controls.filterActiveBar) {
+      controls.filterActiveBar.style.display = isFiltering ? "flex" : "none";
+    }
+    if (controls.filterVisibleCount) controls.filterVisibleCount.textContent = visibleCount;
+    if (controls.filterTotalCount) controls.filterTotalCount.textContent = total;
+
+    // 總計徽章
+    if (controls.totalCount) {
+      controls.totalCount.textContent = isFiltering ? `${visibleCount} (全 ${total})` : total;
+    }
+  }
+
+  // 開啟手機抽屜式多條件篩選器
+  let drawerFilters = {};
+
+  function openFilterDrawer() {
+    if (!controls.filterDrawer || !controls.filterBody) return;
+    const dims = getFilterableDimensions();
+    if (!dims.length) {
+      showToast("此清單無足夠的多樣性欄位可供篩選", "dup");
+      return;
+    }
+
+    // 複製或初始化篩選暫存
+    drawerFilters = {};
+    dims.forEach(dim => {
+      if (state.activeFilters[dim.key] && state.activeFilters[dim.key] instanceof Set) {
+        drawerFilters[dim.key] = new Set(state.activeFilters[dim.key]);
+      } else {
+        drawerFilters[dim.key] = new Set(dim.values.map(v => v.val));
+      }
+    });
+
+    renderFilterDrawerBody(dims);
+    updateDrawerMatchCount();
+
+    controls.filterDrawer.classList.remove("is-hidden");
+    controls.filterDrawer.style.display = "flex";
+    controls.filterDrawer.setAttribute("aria-hidden", "false");
+  }
+
+  function closeFilterDrawer() {
+    if (!controls.filterDrawer) return;
+    controls.filterDrawer.classList.add("is-hidden");
+    controls.filterDrawer.style.display = "none";
+    controls.filterDrawer.setAttribute("aria-hidden", "true");
+  }
+
+  // 動態渲染抽屜內容
+  function renderFilterDrawerBody(dims) {
+    if (!controls.filterBody) return;
+
+    const html = dims.map(dim => {
+      const selectedSet = drawerFilters[dim.key] || new Set();
+
+      const chipsHtml = dim.values.map(v => {
+        const isChecked = selectedSet.has(v.val);
+        return `
+          <div class="v2-filter-chip ${isChecked ? 'is-active' : ''}" data-dim-key="${escapeHtml(dim.key)}" data-val="${escapeHtml(v.val)}">
+            <span>${escapeHtml(v.val)}</span>
+            <span class="v2-filter-chip-count">${v.count}</span>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="v2-filter-group" data-dim-group="${escapeHtml(dim.key)}">
+          <div class="v2-filter-group-header">
+            <span class="v2-filter-group-title">
+              <span>🏷️</span> ${escapeHtml(dim.key)}
+            </span>
+            <div class="v2-filter-group-actions">
+              <button type="button" class="v2-filter-action-link" data-dim-action="all" data-dim-key="${escapeHtml(dim.key)}">全選</button>
+              <button type="button" class="v2-filter-action-link" data-dim-action="none" data-dim-key="${escapeHtml(dim.key)}">全消</button>
+            </div>
+          </div>
+          <div class="v2-filter-chips">
+            ${chipsHtml}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    controls.filterBody.innerHTML = html;
+
+    // 綁定 Chip 點擊切換
+    controls.filterBody.querySelectorAll(".v2-filter-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const key = chip.dataset.dimKey;
+        const val = chip.dataset.val;
+        const set = drawerFilters[key];
+        if (!set) return;
+
+        if (set.has(val)) {
+          set.delete(val);
+          chip.classList.remove("is-active");
+        } else {
+          set.add(val);
+          chip.classList.add("is-active");
+        }
+        updateDrawerMatchCount();
+      });
+    });
+
+    // 綁定全選/全消按鈕
+    controls.filterBody.querySelectorAll(".v2-filter-action-link").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.dimAction;
+        const key = btn.dataset.dimKey;
+        const dim = dims.find(d => d.key === key);
+        if (!dim) return;
+
+        const groupEl = controls.filterBody.querySelector(`.v2-filter-group[data-dim-group="${key}"]`);
+        const set = drawerFilters[key];
+
+        if (action === "all") {
+          dim.values.forEach(v => set.add(v.val));
+          groupEl?.querySelectorAll(".v2-filter-chip").forEach(c => c.classList.add("is-active"));
+        } else {
+          set.clear();
+          groupEl?.querySelectorAll(".v2-filter-chip").forEach(c => c.classList.remove("is-active"));
+        }
+        updateDrawerMatchCount();
+      });
+    });
+  }
+
+  function updateDrawerMatchCount() {
+    const matches = state.records.filter(r => isRecordVisible(r, drawerFilters)).length;
+    if (controls.filterMatchCount) {
+      controls.filterMatchCount.textContent = matches;
+    }
+  }
+
+  function applyDrawerFilters() {
+    state.activeFilters = {};
+    const dims = getFilterableDimensions();
+
+    dims.forEach(dim => {
+      const set = drawerFilters[dim.key];
+      if (set) {
+        state.activeFilters[dim.key] = new Set(set);
+      }
+    });
+
+    closeFilterDrawer();
+    applyFilters();
+    showToast(`🌪️ 已套用條件篩選！符合 ${state.records.filter(r => !r.filteredOut).length} 筆`);
+  }
+
+  function resetAllFilters() {
+    state.activeFilters = {};
+    if (controls.filterDrawer && !controls.filterDrawer.classList.contains("is-hidden")) {
+      const dims = getFilterableDimensions();
+      dims.forEach(dim => {
+        drawerFilters[dim.key] = new Set(dim.values.map(v => v.val));
+      });
+      renderFilterDrawerBody(dims);
+      updateDrawerMatchCount();
+    }
+    applyFilters();
+    showToast("已重設全部篩選，顯示所有電表");
   }
 
   // 核心執行流程：解析並批次定位
@@ -764,6 +1111,14 @@
     await Promise.all(workers);
 
     state.records = records.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+    state.records.forEach(r => {
+      if (!r.extra) r.extra = {};
+      r.extra["定位型態"] = r.locType === "doorplate" ? "🏠 門牌定位" : (r.locType === "fallback" ? "⚡ 圖號保底" : "⚡ 圖號定位");
+      if (r.pole && !r.extra["土木設備"]) r.extra["土木設備"] = r.pole;
+      if (r.inspectTerm && !r.extra["檢定期限"]) r.extra["檢定期限"] = r.inspectTerm;
+    });
+    state.activeFilters = {};
+
     state.isProcessing = false;
     controls.startBtn.disabled = false;
     controls.progress.style.display = "none";
@@ -780,6 +1135,7 @@
     renderBatchMarkers();
     renderBatchList();
     updateSummaryBadges(doorplateSuccess, gridCount, fallbackCount);
+    updateFilterStatusUI(state.records.length);
 
     // 切換至結果頁
     switchTab("list");
@@ -904,6 +1260,8 @@
         map.removeLayer(state.layerGroup);
       }
     }
+
+    applyFilters();
   }
 
   // 渲染分頁 2 的結果卡片
@@ -920,13 +1278,15 @@
         : `<span style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700;">⚡ 圖號</span>`;
 
       return `
-        <div class="v2-batch-item" data-meter-idx="${idx}">
+        <div class="v2-batch-item" data-meter-idx="${idx}" ${r.filteredOut ? 'style="display:none;"' : ""}>
           <div class="v2-batch-item-title">
             <span>#${idx + 1} ${escapeHtml(r.addr || r.code || r.custNo)}</span>
             ${typeBadge}
           </div>
           <div class="v2-batch-item-meta">
             <span>電號: ${escapeHtml(r.custNo || "--")}</span> · <span>桿名: ${escapeHtml(r.pole || "--")}</span> · <span>圖號: ${escapeHtml(r.code || "--")}</span>
+            ${r.extra?.["型式"] ? ` · <span style="color:#0f766e;font-weight:700;">型式: ${escapeHtml(r.extra["型式"])}</span>` : ""}
+            ${r.extra?.["契約"] ? ` · <span>契約: ${escapeHtml(r.extra["契約"])}</span>` : ""}
           </div>
         </div>
       `;
@@ -1165,6 +1525,8 @@
     if (!state.records.length) return;
     if (state.layerGroup) state.layerGroup.clearLayers();
     state.records = [];
+    state.activeFilters = {};
+    updateFilterStatusUI(0);
     localStorage.removeItem("tp_batch_meter_bookmarks_v1");
     renderBatchList();
     updateSummaryBadges(0, 0, 0);
@@ -1247,6 +1609,14 @@
 
     controls.exportBtn?.addEventListener("click", exportToExcel);
     controls.clearAllBtn?.addEventListener("click", clearAllMarkers);
+
+    // 條件篩選按鈕與手機抽屜控制
+    controls.filterBtn?.addEventListener("click", openFilterDrawer);
+    controls.filterCloseBtn?.addEventListener("click", closeFilterDrawer);
+    controls.filterBackdrop?.addEventListener("click", closeFilterDrawer);
+    controls.filterApplyBtn?.addEventListener("click", applyDrawerFilters);
+    controls.filterResetAllBtn?.addEventListener("click", resetAllFilters);
+    controls.filterResetQuickBtn?.addEventListener("click", resetAllFilters);
 
     // 標籤控制
     controls.toggleBgLabelsBtn?.addEventListener("click", toggleBackgroundPoleLabels);
