@@ -486,7 +486,7 @@
     controls.tabCountBadge = document.getElementById("v2BatchCount");
     controls.list = document.getElementById("batchMeterList");
     controls.fitBoundsBtn = document.getElementById("batchFitBoundsBtn");
-    controls.exportBtn = document.getElementById("batchExportBtn");
+    controls.exportBtn = document.getElementById("batchMeterExportBtn");
     controls.clearAllBtn = document.getElementById("batchClearAllBtn");
 
     controls.toggleBgLabelsBtn = document.getElementById("batchToggleBgLabelsBtn");
