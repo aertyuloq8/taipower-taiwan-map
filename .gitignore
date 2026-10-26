@@ -29,6 +29,7 @@ tools/pmtiles_bin/
 !data/meta.json
 !data/processed/cities_meta.json
 !data/taiwan_poles.pmtiles
+!data/pole_prefix_index.json
 
 # Environment & Temp
 .env

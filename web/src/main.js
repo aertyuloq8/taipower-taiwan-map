@@ -5377,11 +5377,14 @@ window.__appBooted = true;
         if (!clientId) throw new Error("尚未設定 Google Client ID，已取消");
         if (_driveAccessToken && _driveTokenExpiresAt > Date.now() + 60000) return _driveAccessToken;
         if (isIOSDevice()) return getDriveTokenViaRedirect(clientId);
-        await loadGIS();
+        if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) {
+          await loadGIS();
+        }
         return new Promise((resolve, reject) => {
           let settled = false;
           let popupHandle = null;
           let pollTimer = null;
+          let popupBlocked = false;
           const realOpen = window.open;
           // COOP 政策下讀取跨源 popup.closed 會丟錯，包起來避免紅字洗版
           const isPopupClosed = (popup) => {
@@ -5397,15 +5400,31 @@ window.__appBooted = true;
           };
           window.open = (...args) => {
             const opened = realOpen.apply(window, args);
-            if (opened) popupHandle = opened;
+            if (!opened) {
+              popupBlocked = true;
+            } else {
+              popupHandle = opened;
+            }
             return opened;
           };
           pollTimer = setInterval(() => {
+            if (popupBlocked) {
+              clearInterval(pollTimer);
+              window.open = realOpen;
+              console.warn("彈出視窗被瀏覽器封鎖，自動切換至跳轉登入模式...");
+              return getDriveTokenViaRedirect(clientId);
+            }
             if (isPopupClosed(popupHandle)) {
               finish(reject, new Error("Google 登入視窗已關閉，已取消"));
             }
           }, 300);
-          const timeoutId = setTimeout(() => finish(reject, new Error("Google 登入逾時，請重試")), 120000);
+          const timeoutId = setTimeout(() => {
+            if (!settled) {
+              window.open = realOpen;
+              console.warn("彈出視窗逾時，自動切換為跳轉登入...");
+              getDriveTokenViaRedirect(clientId);
+            }
+          }, 25000);
           const client = google.accounts.oauth2.initTokenClient({
             client_id: clientId,
             scope: DRIVE_SCOPE,
@@ -5417,8 +5436,25 @@ window.__appBooted = true;
               _driveTokenExpiresAt = Date.now() + 3300000;
               finish(resolve, resp.access_token);
             },
+            error_callback: (err) => {
+              clearTimeout(timeoutId);
+              console.warn("GIS 授權錯誤：", err);
+              if (err && (err.type === "popup_failed_to_open" || err.type === "popup_closed" || popupBlocked)) {
+                window.open = realOpen;
+                console.warn("彈出視窗開啟失敗，自動切換為跳轉登入...");
+                return getDriveTokenViaRedirect(clientId);
+              }
+              finish(reject, new Error("Google 登入異常：" + (err?.message || err?.type || "已取消")));
+            }
           });
-          client.requestAccessToken();
+          try {
+            client.requestAccessToken();
+          } catch (e) {
+            clearTimeout(timeoutId);
+            window.open = realOpen;
+            console.warn("requestAccessToken 執行失敗，切換為跳轉登入：", e);
+            return getDriveTokenViaRedirect(clientId);
+          }
         });
       }
       let backupProgressTimer = null;
@@ -7706,6 +7742,125 @@ window.__appBooted = true;
         }
       }
 
+      let _polePrefixIndex = null;
+      let _polePrefixIndexPromise = null;
+      async function ensurePolePrefixIndex() {
+        if (_polePrefixIndex) return _polePrefixIndex;
+        if (_polePrefixIndexPromise) return _polePrefixIndexPromise;
+        _polePrefixIndexPromise = (async () => {
+          try {
+            const url = new URL("../data/pole_prefix_index.json", window.location.href).href;
+            const resp = await fetch(url);
+            if (!resp.ok) return null;
+            _polePrefixIndex = await resp.json();
+            return _polePrefixIndex;
+          } catch (e) {
+            console.warn("全台電桿前綴索引載入略過：", e);
+            return null;
+          }
+        })();
+        return _polePrefixIndexPromise;
+      }
+
+      async function searchPolesGlobally(query, cityName = "", areaName = "") {
+        const index = await ensurePolePrefixIndex();
+        if (!index || !window.__pmtilesLayer || !window.__pmtilesLayer.getTileFeatures) return [];
+
+        const rawQ = String(query || "").trim();
+        const cleanQ = rawQ.replace(/[#＃]/g, "");
+        if (!cleanQ) return [];
+
+        const match = cleanQ.match(/^([^\d]+)(\d+)?/);
+        if (!match) return [];
+        const prefix = match[1];
+        const num = match[2] ? parseInt(match[2], 10) : null;
+        const basePrefix = prefix.replace(/(高幹|高分|幹|支|線)$/, "");
+
+        const candidatePrefixes = new Set();
+        for (const p of [prefix, basePrefix]) {
+          if (p && index.p[p]) candidatePrefixes.add(p);
+        }
+        for (const p in index.p) {
+          if (candidatePrefixes.size >= 12) break;
+          if (p.startsWith(prefix) || (basePrefix && p.startsWith(basePrefix))) {
+            candidatePrefixes.add(p);
+          }
+        }
+
+        const tilesToFetch = new Map();
+        for (const p of candidatePrefixes) {
+          const clusters = index.p[p];
+          if (!clusters) continue;
+          for (const item of clusters) {
+            const [caId, min_num, max_num, lat, lng, count] = item;
+            const cityArea = index.ca[caId];
+            if (cityName && cityName !== "全台灣" && cityArea[0] !== cityName) continue;
+            if (areaName && cityArea[1] !== areaName) continue;
+            if (num !== null) {
+              if (num < min_num || num > max_num) continue;
+            }
+            const tile = window.__pmtilesLayer.latLng2Tile(lat, lng, 13);
+            const key = `13_${tile.x}_${tile.y}`;
+            if (!tilesToFetch.has(key)) {
+              tilesToFetch.set(key, { z: 13, x: tile.x, y: tile.y, cityArea });
+            }
+            if (tilesToFetch.size >= 8) break;
+          }
+          if (tilesToFetch.size >= 8) break;
+        }
+
+        const results = [];
+        const seen = new Set();
+
+        for (const [key, t] of tilesToFetch) {
+          let feats = [];
+          try {
+            feats = await window.__pmtilesLayer.getTileFeatures(t.z, t.x, t.y);
+          } catch {}
+          if (!feats || !feats.length) continue;
+
+          for (const f of feats) {
+            const name = f.name || "";
+            const code = f.code || "";
+            const cleanName = name.replace(/[#＃]/g, "");
+            if (cleanName.includes(cleanQ) || code.includes(cleanQ) || name.includes(rawQ)) {
+              const coords = window.__pmtilesLayer.tilePoint2LatLng(t.x, t.y, t.z, f.px, f.py);
+              const k = f.id != null ? f.id : `${name}_${coords.lat.toFixed(6)}`;
+              if (seen.has(k)) continue;
+              seen.add(k);
+              results.push({
+                id: f.id,
+                name: name || code,
+                code: code || name,
+                city: f.city || t.cityArea[0],
+                area: f.area || t.cityArea[1],
+                type: f.type || "水泥桿",
+                lat: coords.lat,
+                lng: coords.lng
+              });
+              if (results.length >= 50) break;
+            }
+          }
+          if (results.length >= 50) break;
+        }
+
+        results.sort((a, b) => {
+          const aClean = a.name.replace(/[#＃]/g, "");
+          const bClean = b.name.replace(/[#＃]/g, "");
+          const aExact = aClean === cleanQ || a.code === cleanQ;
+          const bExact = bClean === cleanQ || b.code === cleanQ;
+          if (aExact && !bExact) return -1;
+          if (!aExact && bExact) return 1;
+          const aStarts = aClean.startsWith(cleanQ);
+          const bStarts = bClean.startsWith(cleanQ);
+          if (aStarts && !bStarts) return -1;
+          if (!aStarts && bStarts) return 1;
+          return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
+        });
+
+        return results.slice(0, 50);
+      }
+
       async function fetchGlobalSearchResults(query, localMatches) {
         const reqId = ++globalSearchReqId;
         if (globalSearchTimer) clearTimeout(globalSearchTimer);
@@ -7715,19 +7870,34 @@ window.__appBooted = true;
             const cityName = citySelect?.value || "";
             const areaName = areaSelect?.value || "";
             const center = (typeof map !== "undefined" && map && map.getCenter) ? map.getCenter() : null;
-            const params = new URLSearchParams({
-              q: query,
-              city: cityName === "全台灣" ? "" : cityName,
-              area: areaName
-            });
-            if (center) {
-              params.set("lat", center.lat.toFixed(6));
-              params.set("lng", center.lng.toFixed(6));
+
+            let globalResults = [];
+
+            // 1. 優先嘗試全台本機記憶體快速索引 (PMTiles 次毫秒級檢索，免後端，跨全台視野無死角)
+            try {
+              globalResults = await searchPolesGlobally(query, cityName, areaName);
+            } catch (err) {
+              console.warn("全台索引檢索異常：", err);
             }
 
-            const resp = await fetch(`/api/search?${params}`);
-            if (!resp.ok) return;
-            const globalResults = await resp.json();
+            // 2. 若本地無結果且後端搜尋 API 存在，嘗試從後端撈取
+            if (!globalResults || !globalResults.length) {
+              try {
+                const params = new URLSearchParams({
+                  q: query,
+                  city: cityName === "全台灣" ? "" : cityName,
+                  area: areaName
+                });
+                if (center) {
+                  params.set("lat", center.lat.toFixed(6));
+                  params.set("lng", center.lng.toFixed(6));
+                }
+                const resp = await fetch(`/api/search?${params}`);
+                if (resp.ok) {
+                  globalResults = await resp.json();
+                }
+              } catch {}
+            }
 
             if (reqId !== globalSearchReqId) return;
 
@@ -7742,7 +7912,7 @@ window.__appBooted = true;
             }
 
             // 全台搜尋結果接續
-            for (const item of globalResults) {
+            for (const item of (globalResults || [])) {
               const k = item.id != null ? `id_${item.id}` : `${item.code}_${item.name}`;
               if (!seenKeys.has(k)) {
                 seenKeys.add(k);

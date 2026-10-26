@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <link rel="stylesheet" href="cadastre.css" />
     <link rel="stylesheet" href="batch-meter.css" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script type="module" src="./src/utils/cdn.js"></script>
 
     <link rel="stylesheet" href="./src/styles/main.css" />
@@ -365,7 +366,7 @@
           <!-- 標籤顯示控制：可獨立隱藏背景電桿雜訊，或切換電表標籤 -->
           <div class="v2-batch-controls-row">
             <span style="color:#64748b;font-weight:700;">標籤：</span>
-            <button id="batchToggleBgLabelsBtn" class="v2-batch-btn-chip is-hidden-state" type="button" title="點擊切換是否顯示背景電桿名稱標籤">🚫 背景電桿：已隱藏</button>
+            <button id="batchToggleBgLabelsBtn" class="v2-batch-btn-chip is-active" type="button" title="點擊切換是否顯示背景電桿名稱標籤">👁️ 背景電桿：顯示中</button>
             <button id="batchToggleLabelsBtn" class="v2-batch-btn-chip is-active" type="button" title="點擊切換這批電表的文字標籤">🏷️ 電表標籤：顯示中</button>
           </div>
 

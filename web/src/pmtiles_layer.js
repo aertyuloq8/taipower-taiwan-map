@@ -365,5 +365,9 @@ export function createPMTilesLayer(pmtilesUrl, options = {}) {
     return closest;
   };
 
+  layer.getTileFeatures = getTileFeatures;
+  layer.tilePoint2LatLng = tilePoint2LatLng;
+  layer.latLng2Tile = latLng2Tile;
+
   return layer;
 }

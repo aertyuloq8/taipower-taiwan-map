@@ -46,7 +46,7 @@
   }
 
   function googleNavUrl(lat, lng) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat.toFixed(6) + "," + lng.toFixed(6))}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat.toFixed(6) + "," + lng.toFixed(6))}`;
   }
 
   async function ensureXLSX() {
@@ -395,6 +395,7 @@
     controls.toggle.setAttribute("aria-expanded", String(open));
     if (open) {
       closeOtherPanels();
+      syncBgLabelsBtnWithMap();
     }
   }
 
@@ -436,6 +437,12 @@
       updateBgLabelsBtnUI(isHidden);
       showToast(isHidden ? "🚫 已為您隱藏背景電桿標籤" : "👁️ 已還原背景電桿標籤");
     }
+  }
+
+  function syncBgLabelsBtnWithMap() {
+    const btn = document.getElementById("toggleLabelsBtn");
+    const isHidden = btn ? btn.classList.contains("is-hidden") : false;
+    updateBgLabelsBtnUI(isHidden);
   }
 
   function updateBgLabelsBtnUI(hidden) {
@@ -674,11 +681,11 @@
           <div style="font-size:11px;color:#047857;margin-top:4px;padding:3px 6px;background:#f0fdf4;border-radius:4px;">
             ↳ ${escapeHtml(r.locLabel)}
           </div>
-          <div style="display:flex;gap:6px;margin-top:8px;">
-            <a href="${navUrl}" target="_blank" rel="noopener noreferrer" style="flex:1;background:#0f766e;color:#fff;text-align:center;padding:5px 8px;border-radius:5px;text-decoration:none;font-weight:700;font-size:12px;display:inline-block;">
+          <div class="v2-cadastre-popup-actions" style="margin-top:8px;display:flex;gap:6px;">
+            <a class="popup-navigation-link" href="${navUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;justify-content:center;">
               🗺️ 導航
             </a>
-            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;padding:5px 8px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;">
+            <button type="button" class="batch-remove-single-btn" data-remove-idx="${idx}" style="flex:1;background:#fef2f2;color:#dc2626;border:1px solid #fecdd3;border-radius:5px;cursor:pointer;font-size:12px;font-weight:700;min-height:28px;padding:4px 8px;">
               ✕ 移除本點
             </button>
           </div>
@@ -1022,6 +1029,8 @@
     controls.driveUploadBtn?.addEventListener("click", uploadBatchToDrive);
     controls.driveRestoreBtn?.addEventListener("click", restoreBatchFromDrive);
     controls.toBookmarksBtn?.addEventListener("click", saveToAddressBookmarks);
+
+    syncBgLabelsBtnWithMap();
 
     // 監聽 Drive 還原事件
     window.addEventListener("batchMetersRestored", () => {
