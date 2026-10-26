@@ -1282,6 +1282,12 @@
       if (r.extra?.["相別"]) chips.push(`<span class="v2-batch-chip is-phase">相別: ${escapeHtml(r.extra["相別"])}</span>`);
       if (r.meterNo) chips.push(`<span class="v2-batch-chip">表號: ${escapeHtml(r.meterNo)}</span>`);
       if (r.inspectTerm) chips.push(`<span class="v2-batch-chip">檢定: ${escapeHtml(r.inspectTerm)}</span>`);
+      // 若無上述台電常見規格但有其他自訂欄位，動態取前 2 項作為標籤
+      if (chips.length === 0 && customFields.length > 0) {
+        customFields.slice(0, 2).forEach(f => {
+          chips.push(`<span class="v2-batch-chip">${escapeHtml(f.key)}: ${escapeHtml(f.val)}</span>`);
+        });
+      }
 
       // 完整資料摺疊收合區 (當有額外資料或欄位較多時可展開/收合)
       const popupCollapseHtml = customFields.length > 0 ? `
@@ -1369,6 +1375,12 @@
       if (r.extra?.["相別"]) chips.push(`<span class="v2-batch-chip is-phase">相別: ${escapeHtml(r.extra["相別"])}</span>`);
       if (r.meterNo) chips.push(`<span class="v2-batch-chip">表號: ${escapeHtml(r.meterNo)}</span>`);
       if (r.inspectTerm) chips.push(`<span class="v2-batch-chip">檢定: ${escapeHtml(r.inspectTerm)}</span>`);
+      // 若無上述台電常見規格但有其他自訂欄位，動態取前 2 項作為標籤
+      if (chips.length === 0 && customFields.length > 0) {
+        customFields.slice(0, 2).forEach(f => {
+          chips.push(`<span class="v2-batch-chip">${escapeHtml(f.key)}: ${escapeHtml(f.val)}</span>`);
+        });
+      }
 
       const cardCollapseHtml = customFields.length > 0 ? `
         <details class="v2-batch-card-details" onclick="event.stopPropagation()">
