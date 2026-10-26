@@ -6897,8 +6897,9 @@ window.__appBooted = true;
       }
       function pointSearchText(point) {
         const raw = `${point.name || ""} ${point.code || ""} ${codePrefix(point.code)}`.toLowerCase();
-        const noHash = raw.replace(/#/g, "");
-        return `${raw} ${noHash}`;
+        const noHash = raw.replace(/[#＃]/g, "");
+        const norm = noHash.replace(/(高幹|高分|幹|支|分|線)(?=\d)/, "");
+        return `${raw} ${noHash} ${norm}`;
       }
       function hasSearchTerm(point, terms) { if (!terms.length) return false; const text = pointSearchText(point); return terms.some(term => text.includes(term)); }
       function matchesSearch(point, search) {
@@ -7844,6 +7845,74 @@ window.__appBooted = true;
         }
       }
 
+      function parsePoleNameStructure(name) {
+        const clean = String(name || "").replace(/[#＃\s]/g, "");
+        const m = clean.match(/^([^\d]+?)(高幹|高分|幹|支|分|線)?(\d+)(.*)$/);
+        if (m) {
+          return {
+            raw: name,
+            clean,
+            basePrefix: m[1],
+            typeTag: m[2] || "",
+            primaryNum: parseInt(m[3], 10),
+            numStr: m[3],
+            rest: m[4] || "",
+            normShort: `${m[1]}${m[3]}`
+          };
+        }
+        return { raw: name, clean, basePrefix: clean, typeTag: "", primaryNum: null, numStr: "", rest: "", normShort: clean };
+      }
+
+      function comparePolesProgressive(a, b, cleanQ, prefix, num, numStr) {
+        const pA = a.parsed || parsePoleNameStructure(a.name);
+        const pB = b.parsed || parsePoleNameStructure(b.name);
+
+        // 0. Exact prefix match (e.g. 冷水 vs 冷水坑)
+        const aExactPrefix = pA.basePrefix === prefix;
+        const bExactPrefix = pB.basePrefix === prefix;
+        if (aExactPrefix && !bExactPrefix) return -1;
+        if (!aExactPrefix && bExactPrefix) return 1;
+
+        // 1. Exact trunk pole match (e.g. 冷水高幹#1 for query "冷水1")
+        const aExactShort = pA.normShort === cleanQ && !pA.rest;
+        const bExactShort = pB.normShort === cleanQ && !pB.rest;
+        if (aExactShort && !bExactShort) return -1;
+        if (!aExactShort && bExactShort) return 1;
+
+        // 2. Exact literal match
+        const aExactClean = pA.clean === cleanQ || a.code === cleanQ;
+        const bExactClean = pB.clean === cleanQ || b.code === cleanQ;
+        if (aExactClean && !bExactClean) return -1;
+        if (!aExactClean && bExactClean) return 1;
+
+        // 3. Direct branch of exact pole (e.g. 冷水1左#1 for query "冷水1")
+        const aDirectBranch = pA.normShort === cleanQ && pA.rest;
+        const bDirectBranch = pB.normShort === cleanQ && pB.rest;
+        if (aDirectBranch && !bDirectBranch) return -1;
+        if (!aDirectBranch && bDirectBranch) return 1;
+
+        // 4. Numerical progression (1 -> 10 -> 100 or ascending)
+        if (num !== null && pA.primaryNum !== null && pB.primaryNum !== null) {
+          // Prioritize round decimal powers (1, 10, 100...)
+          const isRoundA = pA.numStr === numStr || pA.numStr === numStr + "0" || pA.numStr === numStr + "00";
+          const isRoundB = pB.numStr === numStr || pB.numStr === numStr + "0" || pB.numStr === numStr + "00";
+          if (isRoundA && !isRoundB) return -1;
+          if (!isRoundA && isRoundB) return 1;
+
+          if (pA.primaryNum !== pB.primaryNum) {
+            return pA.primaryNum - pB.primaryNum;
+          }
+          
+          // If primaryNum is same, trunk comes before branches
+          const aIsTrunk = !pA.rest;
+          const bIsTrunk = !pB.rest;
+          if (aIsTrunk && !bIsTrunk) return -1;
+          if (!aIsTrunk && bIsTrunk) return 1;
+        }
+
+        return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
+      }
+
       let _polePrefixIndex = null;
       let _polePrefixIndexPromise = null;
       async function ensurePolePrefixIndex() {
@@ -7851,11 +7920,21 @@ window.__appBooted = true;
         if (_polePrefixIndexPromise) return _polePrefixIndexPromise;
         _polePrefixIndexPromise = (async () => {
           try {
-            const url = new URL("../data/pole_prefix_index.json", window.location.href).href;
-            const resp = await fetch(url);
-            if (!resp.ok) return null;
-            _polePrefixIndex = await resp.json();
-            return _polePrefixIndex;
+            const urls = [
+              new URL("./data/pole_prefix_index.json", window.location.href).href,
+              new URL("/data/pole_prefix_index.json", window.location.origin).href,
+              new URL("../data/pole_prefix_index.json", window.location.href).href
+            ];
+            for (const url of urls) {
+              try {
+                const resp = await fetch(url);
+                if (resp.ok) {
+                  _polePrefixIndex = await resp.json();
+                  return _polePrefixIndex;
+                }
+              } catch {}
+            }
+            return null;
           } catch (e) {
             console.warn("全台電桿前綴索引載入略過：", e);
             return null;
@@ -7869,13 +7948,14 @@ window.__appBooted = true;
         if (!index || !window.__pmtilesLayer || !window.__pmtilesLayer.getTileFeatures) return [];
 
         const rawQ = String(query || "").trim();
-        const cleanQ = rawQ.replace(/[#＃]/g, "");
+        const cleanQ = rawQ.replace(/[#＃\s]/g, "");
         if (!cleanQ) return [];
 
         const match = cleanQ.match(/^([^\d]+)(\d+)?/);
         if (!match) return [];
         const prefix = match[1];
         const num = match[2] ? parseInt(match[2], 10) : null;
+        const numStr = match[2] || "";
         const basePrefix = prefix.replace(/(高幹|高分|幹|支|線)$/, "");
 
         const candidatePrefixes = new Set();
@@ -7894,21 +7974,44 @@ window.__appBooted = true;
           const clusters = index.p[p];
           if (!clusters) continue;
           for (const item of clusters) {
-            const [caId, min_num, max_num, lat, lng, count] = item;
+            const [caId, min_num, max_num, x1, y1, x2, y2, count] = item;
             const cityArea = index.ca[caId];
             if (cityName && cityName !== "全台灣" && cityArea[0] !== cityName) continue;
             if (areaName && cityArea[1] !== areaName) continue;
-            if (num !== null) {
-              if (num < min_num || num > max_num) continue;
+
+            // Bounding box support
+            const hasBounds = x2 !== undefined && y2 !== undefined;
+            if (hasBounds) {
+              if (num !== null && (num < min_num || num > max_num + 50)) {
+                const minStr = String(min_num);
+                const maxStr = String(max_num);
+                if (!minStr.startsWith(numStr) && !maxStr.startsWith(numStr)) {
+                  continue;
+                }
+              }
+
+              for (let x = x1; x <= Math.min(x2, x1 + 2); x++) {
+                for (let y = y1; y <= Math.min(y2, y1 + 2); y++) {
+                  const key = `13_${x}_${y}`;
+                  if (!tilesToFetch.has(key)) {
+                    tilesToFetch.set(key, { z: 13, x, y, cityArea });
+                  }
+                  if (tilesToFetch.size >= 12) break;
+                }
+                if (tilesToFetch.size >= 12) break;
+              }
+            } else {
+              // Legacy point cluster
+              const [,, lat, lng] = item;
+              const tile = window.__pmtilesLayer.latLng2Tile(lat, lng, 13);
+              const key = `13_${tile.x}_${tile.y}`;
+              if (!tilesToFetch.has(key)) {
+                tilesToFetch.set(key, { z: 13, x: tile.x, y: tile.y, cityArea });
+              }
             }
-            const tile = window.__pmtilesLayer.latLng2Tile(lat, lng, 13);
-            const key = `13_${tile.x}_${tile.y}`;
-            if (!tilesToFetch.has(key)) {
-              tilesToFetch.set(key, { z: 13, x: tile.x, y: tile.y, cityArea });
-            }
-            if (tilesToFetch.size >= 8) break;
+            if (tilesToFetch.size >= 12) break;
           }
-          if (tilesToFetch.size >= 8) break;
+          if (tilesToFetch.size >= 12) break;
         }
 
         const results = [];
@@ -7924,8 +8027,15 @@ window.__appBooted = true;
           for (const f of feats) {
             const name = f.name || "";
             const code = f.code || "";
-            const cleanName = name.replace(/[#＃]/g, "");
-            if (cleanName.includes(cleanQ) || code.includes(cleanQ) || name.includes(rawQ)) {
+            const cleanName = name.replace(/[#＃\s]/g, "");
+            const parsed = parsePoleNameStructure(name);
+
+            const isMatch = cleanName.includes(cleanQ) || 
+                            code.includes(cleanQ) || 
+                            parsed.normShort.includes(cleanQ) ||
+                            (parsed.basePrefix === prefix && numStr && parsed.numStr.startsWith(numStr));
+
+            if (isMatch) {
               const coords = window.__pmtilesLayer.tilePoint2LatLng(t.x, t.y, t.z, f.px, f.py);
               const k = f.id != null ? f.id : `${name}_${coords.lat.toFixed(6)}`;
               if (seen.has(k)) continue;
@@ -7938,28 +8048,14 @@ window.__appBooted = true;
                 area: f.area || t.cityArea[1],
                 type: f.type || "水泥桿",
                 lat: coords.lat,
-                lng: coords.lng
+                lng: coords.lng,
+                parsed
               });
-              if (results.length >= 50) break;
             }
           }
-          if (results.length >= 50) break;
         }
 
-        results.sort((a, b) => {
-          const aClean = a.name.replace(/[#＃]/g, "");
-          const bClean = b.name.replace(/[#＃]/g, "");
-          const aExact = aClean === cleanQ || a.code === cleanQ;
-          const bExact = bClean === cleanQ || b.code === cleanQ;
-          if (aExact && !bExact) return -1;
-          if (!aExact && bExact) return 1;
-          const aStarts = aClean.startsWith(cleanQ);
-          const bStarts = bClean.startsWith(cleanQ);
-          if (aStarts && !bStarts) return -1;
-          if (!aStarts && bStarts) return 1;
-          return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
-        });
-
+        results.sort((a, b) => comparePolesProgressive(a, b, cleanQ, prefix, num, numStr));
         return results.slice(0, 50);
       }
 
@@ -8023,6 +8119,14 @@ window.__appBooted = true;
               if (combined.length >= 50) break;
             }
 
+            if (combined.length > 1) {
+              const rawClean = String(query || "").trim().replace(/[#＃\s]/g, "");
+              const m = rawClean.match(/^([^\d]+)(\d+)?/);
+              const pfx = m ? m[1] : rawClean;
+              const n = m && m[2] ? parseInt(m[2], 10) : null;
+              const nStr = m && m[2] ? m[2] : "";
+              combined.sort((a, b) => comparePolesProgressive(a, b, rawClean, pfx, n, nStr));
+            }
             renderResults(combined);
           } catch (e) {
             console.warn("全台搜尋 API 查詢失敗：", e);
@@ -8800,7 +8904,7 @@ function renderDefectStats() {
       init();
 
       if ('serviceWorker' in navigator) {
-        if (import.meta.env.DEV) {
+        if (import.meta.env?.DEV) {
           // 本機 Vite 開發環境下，強制註銷 Service Worker 並清除快取，避免快取衝突與重載迴圈
           navigator.serviceWorker.getRegistrations().then(regs => {
             for (const reg of regs) reg.unregister();

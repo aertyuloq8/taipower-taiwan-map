@@ -98,26 +98,65 @@ export default async function handler(req, res) {
       }
     }
 
+    function parsePoleNameStructure(name) {
+      const clean = String(name || "").replace(/[#＃\s]/g, "");
+      const m = clean.match(/^([^\d]+?)(高幹|高分|幹|支|分|線)?(\d+)(.*)$/);
+      if (m) {
+        return {
+          raw: name,
+          clean,
+          basePrefix: m[1],
+          typeTag: m[2] || "",
+          primaryNum: parseInt(m[3], 10),
+          numStr: m[3],
+          rest: m[4] || "",
+          normShort: `${m[1]}${m[3]}`
+        };
+      }
+      return { raw: name, clean, basePrefix: clean, typeTag: "", primaryNum: null, numStr: "", rest: "", normShort: clean };
+    }
+
+    const numStr = match[2] || "";
     const tilesToFetch = new Map();
     for (const p of candidatePrefixes) {
       const clusters = index.p[p];
       if (!clusters) continue;
       for (const item of clusters) {
-        const [caId, min_num, max_num, lat, lng, count] = item;
+        const [caId, min_num, max_num, x1, y1, x2, y2, count] = item;
         const cityArea = index.ca[caId];
         if (cityName && cityName !== "全台灣" && cityArea[0] !== cityName) continue;
         if (areaName && cityArea[1] !== areaName) continue;
-        if (num !== null) {
-          if (num < min_num || num > max_num) continue;
+
+        const hasBounds = x2 !== undefined && y2 !== undefined;
+        if (hasBounds) {
+          if (num !== null && (num < min_num || num > max_num + 50)) {
+            const minStr = String(min_num);
+            const maxStr = String(max_num);
+            if (!minStr.startsWith(numStr) && !maxStr.startsWith(numStr)) {
+              continue;
+            }
+          }
+          for (let x = x1; x <= Math.min(x2, x1 + 2); x++) {
+            for (let y = y1; y <= Math.min(y2, y1 + 2); y++) {
+              const key = `13_${x}_${y}`;
+              if (!tilesToFetch.has(key)) {
+                tilesToFetch.set(key, { z: 13, x, y, cityArea });
+              }
+              if (tilesToFetch.size >= 12) break;
+            }
+            if (tilesToFetch.size >= 12) break;
+          }
+        } else {
+          const [,, lat, lng] = item;
+          const tile = latLng2Tile(lat, lng, 13);
+          const key = `13_${tile.x}_${tile.y}`;
+          if (!tilesToFetch.has(key)) {
+            tilesToFetch.set(key, { z: 13, x: tile.x, y: tile.y, cityArea });
+          }
         }
-        const tile = latLng2Tile(lat, lng, 13);
-        const key = `13_${tile.x}_${tile.y}`;
-        if (!tilesToFetch.has(key)) {
-          tilesToFetch.set(key, { z: 13, x: tile.x, y: tile.y, cityArea });
-        }
-        if (tilesToFetch.size >= 8) break;
+        if (tilesToFetch.size >= 12) break;
       }
-      if (tilesToFetch.size >= 8) break;
+      if (tilesToFetch.size >= 12) break;
     }
 
     const results = [];
@@ -135,8 +174,15 @@ export default async function handler(req, res) {
         const feat = layer.feature(i);
         const name = feat.properties.name || "";
         const code = feat.properties.code || "";
-        const cleanName = name.replace(/[#＃]/g, "");
-        if (cleanName.includes(cleanQ) || code.includes(cleanQ) || name.includes(q)) {
+        const cleanName = name.replace(/[#＃\s]/g, "");
+        const parsed = parsePoleNameStructure(name);
+
+        const isMatch = cleanName.includes(cleanQ) || 
+                        code.includes(cleanQ) || 
+                        parsed.normShort.includes(cleanQ) ||
+                        (parsed.basePrefix === prefix && numStr && parsed.numStr.startsWith(numStr));
+
+        if (isMatch) {
           const geom = feat.loadGeometry();
           const pt = geom[0][0];
           const coords = tilePoint2LatLng(t.x, t.y, t.z, pt.x, pt.y);
@@ -152,25 +198,53 @@ export default async function handler(req, res) {
             area: feat.properties.area || t.cityArea[1],
             type: feat.properties.type || "水泥桿",
             lat: coords.lat,
-            lng: coords.lng
+            lng: coords.lng,
+            parsed
           });
-          if (results.length >= 50) break;
         }
       }
-      if (results.length >= 50) break;
     }
 
     results.sort((a, b) => {
-      const aClean = a.name.replace(/[#＃]/g, "");
-      const bClean = b.name.replace(/[#＃]/g, "");
-      const aExact = aClean === cleanQ || a.code === cleanQ;
-      const bExact = bClean === cleanQ || b.code === cleanQ;
-      if (aExact && !bExact) return -1;
-      if (!aExact && bExact) return 1;
-      const aStarts = aClean.startsWith(cleanQ);
-      const bStarts = bClean.startsWith(cleanQ);
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
+      const pA = a.parsed || parsePoleNameStructure(a.name);
+      const pB = b.parsed || parsePoleNameStructure(b.name);
+
+      const aExactPrefix = pA.basePrefix === prefix;
+      const bExactPrefix = pB.basePrefix === prefix;
+      if (aExactPrefix && !bExactPrefix) return -1;
+      if (!aExactPrefix && bExactPrefix) return 1;
+
+      const aExactShort = pA.normShort === cleanQ && !pA.rest;
+      const bExactShort = pB.normShort === cleanQ && !pB.rest;
+      if (aExactShort && !bExactShort) return -1;
+      if (!aExactShort && bExactShort) return 1;
+
+      const aExactClean = pA.clean === cleanQ || a.code === cleanQ;
+      const bExactClean = pB.clean === cleanQ || b.code === cleanQ;
+      if (aExactClean && !bExactClean) return -1;
+      if (!aExactClean && bExactClean) return 1;
+
+      const aDirectBranch = pA.normShort === cleanQ && pA.rest;
+      const bDirectBranch = pB.normShort === cleanQ && pB.rest;
+      if (aDirectBranch && !bDirectBranch) return -1;
+      if (!aDirectBranch && bDirectBranch) return 1;
+
+      if (num !== null && pA.primaryNum !== null && pB.primaryNum !== null) {
+        const isRoundA = pA.numStr === numStr || pA.numStr === numStr + "0" || pA.numStr === numStr + "00";
+        const isRoundB = pB.numStr === numStr || pB.numStr === numStr + "0" || pB.numStr === numStr + "00";
+        if (isRoundA && !isRoundB) return -1;
+        if (!isRoundA && isRoundB) return 1;
+
+        if (pA.primaryNum !== pB.primaryNum) {
+          return pA.primaryNum - pB.primaryNum;
+        }
+        
+        const aIsTrunk = !pA.rest;
+        const bIsTrunk = !pB.rest;
+        if (aIsTrunk && !bIsTrunk) return -1;
+        if (!aIsTrunk && bIsTrunk) return 1;
+      }
+
       return a.name.localeCompare(b.name, "zh-Hant", { numeric: true });
     });
 
