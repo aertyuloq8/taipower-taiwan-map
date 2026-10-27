@@ -5811,7 +5811,7 @@ window.__appBooted = true;
             prefix: "地籍收藏備份_",
             altPrefix: "設備地圖收藏_地籍_",
             lsKey: "tp_cadastre_bookmarks_v1",
-            restoreEvent: "cadastreBookmarksRestored",
+            restoreEvent: "bookmarksRestored",
             dbType: "cadastre"
           };
         }
@@ -5878,26 +5878,31 @@ window.__appBooted = true;
 
           let bookmarks = [];
           if (type === "batch") {
-            if (window.__getBatchRecords) bookmarks = window.__getBatchRecords() || [];
+            if (window.__getBatchRecords) {
+              try { bookmarks = window.__getBatchRecords() || []; } catch {}
+            }
             if (!bookmarks.length) {
               try { bookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
             }
             bookmarks = bookmarks.map(r => ({
+              seqNo: r.seqNo,
+              uid: r.uid,
+              inspected: Boolean(r.inspected),
               custNo: r.custNo || "",
               addr: r.addr || "",
               pole: r.pole || "",
               code: r.code || "",
               meterNo: r.meterNo || "",
               inspectTerm: r.inspectTerm || "",
-              locType: r.locType || "grid",
+              locType: r.locType || (r.code ? "grid" : "doorplate"),
               locLabel: r.locLabel || "",
-              lat: r.lat,
-              lng: r.lng,
+              lat: Number(r.lat),
+              lng: Number(r.lng),
               extra: r.extra || {}
             }));
           } else {
-            if (window.__bookmarkDB) {
-              try { bookmarks = await window.__bookmarkDB.loadBookmarks(type) || []; } catch {}
+            if (window.__bookmarkDB && cfg.dbType) {
+              try { bookmarks = await window.__bookmarkDB.loadBookmarks(cfg.dbType) || []; } catch {}
             }
             if (!bookmarks.length) {
               try { bookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
@@ -5906,12 +5911,22 @@ window.__appBooted = true;
 
           if (!bookmarks.length) {
             if (button) { button.disabled = false; button.textContent = originalText; }
-            GlobalModal.alert(`目前沒有「${cfg.label}」資料可上傳。請先進行標記或收藏。`);
+            let extraHint = "";
+            if (type === "address") {
+              try {
+                const batchRecs = (window.__getBatchRecords ? window.__getBatchRecords() : []) || JSON.parse(localStorage.getItem("tp_batch_meter_bookmarks_v1") || "[]");
+                if (batchRecs.length > 0) {
+                  extraHint = `<br><br><span style="color:#0f766e;font-size:12px;">💡 提示：您目前有 <strong>${batchRecs.length}</strong> 筆「批次電表」資料。如需上傳電表，請至「📋 批次」面板內的「🧰 跨裝置雲端與本機備份」點擊「☁️ 上傳雲端」。</span>`;
+                }
+              } catch {}
+            }
+            GlobalModal.alert(`目前沒有「${cfg.label}」資料可上傳。${extraHint || "請先進行標記或收藏。"}`);
             return;
           }
 
           try {
-            const token = await getDriveAccessToken();
+            clearDriveAccessToken();
+            await getDriveAccessToken();
             if (button) button.textContent = "☁️ 上傳中…";
 
             const now = new Date();
@@ -5919,7 +5934,10 @@ window.__appBooted = true;
             const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
             const fileName = `${cfg.prefix}${timeStr}.json`;
             const blob = new Blob([JSON.stringify(bookmarks, null, 2)], { type: "application/json" });
-            const description = `${cfg.label} ${bookmarks.length} 筆 · 上傳於 ${now.toLocaleString("zh-TW")}`;
+            const doneCount = type === "batch" ? bookmarks.filter(r => r.inspected).length : 0;
+            const description = type === "batch"
+              ? `${cfg.label} ${bookmarks.length} 筆 (已跑 ${doneCount} 筆，待跑 ${bookmarks.length - doneCount} 筆) · 上傳於 ${now.toLocaleString("zh-TW")}`
+              : `${cfg.label} ${bookmarks.length} 筆 · 上傳於 ${now.toLocaleString("zh-TW")}`;
 
             await uploadZipToDrive(blob, fileName, null, "application/json", description);
 
@@ -5944,29 +5962,57 @@ window.__appBooted = true;
           window.__v2DriveResume = { type: "bookmark_restore", subType: type };
 
           try {
+            clearDriveAccessToken();
             await getDriveAccessToken();
 
-            const query = encodeURIComponent(`(name contains '${cfg.prefix}' or name contains '${cfg.altPrefix}') and trashed = false`);
+            // 查詢雲端 .json 備份檔 (使用標準 .json 查詢，避開 Google Drive API 對中文斷詞的索引限制)
+            const query = encodeURIComponent("name contains '.json' and trashed = false");
             const resp = await driveFetch(
               "https://www.googleapis.com/drive/v3/files?q=" + query +
-              "&orderBy=createdTime desc&pageSize=30&fields=files(id,name,size,createdTime,description)"
+              "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,size,createdTime,description)"
             );
-            const files = (await resp.json()).files || [];
+            const allFiles = (await resp.json()).files || [];
+
+            if (!allFiles.length) {
+              GlobalModal.alert(`個人 Google 雲端硬碟中沒有找到任何 JSON 備份檔。`);
+              return;
+            }
+
+            // 依模組在前端進行安全精準匹配
+            let files = [];
+            if (type === "batch") {
+              files = allFiles.filter(f => /批次|電表|batch/i.test(f.name));
+              // 若無完全符合批次關鍵字的檔案，但有包含「收藏」或「備份」的 JSON 檔，放寬顯示供使用者選擇
+              if (!files.length) {
+                files = allFiles.filter(f => !/地籍|cadastre/i.test(f.name));
+              }
+            } else if (type === "address") {
+              files = allFiles.filter(f => /門牌|地址|address/i.test(f.name));
+              if (!files.length) {
+                files = allFiles.filter(f => !/地籍|cadastre/i.test(f.name));
+              }
+            } else if (type === "cadastre") {
+              files = allFiles.filter(f => /地籍|cadastre/i.test(f.name));
+            } else {
+              files = allFiles;
+            }
 
             if (!files.length) {
-              GlobalModal.alert(`個人 Google 雲端硬碟目前沒有「${cfg.label}」專屬備份檔。<br><small style="color:#64748b;">（搜尋字首：${cfg.prefix}）</small>`);
+              GlobalModal.alert(`個人 Google 雲端硬碟目前沒有「${cfg.label}」專屬備份檔。<br><small style="color:#64748b;">（檔名需包含「${type === "batch" ? "批次」或「電表" : (type === "address" ? "門牌」或「地址" : "地籍")}」）</small>`);
               return;
             }
 
             let currentBookmarks = [];
             if (type === "batch") {
-              if (window.__getBatchRecords) currentBookmarks = window.__getBatchRecords() || [];
+              if (window.__getBatchRecords) {
+                try { currentBookmarks = window.__getBatchRecords() || []; } catch {}
+              }
               if (!currentBookmarks.length) {
                 try { currentBookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
               }
             } else {
-              if (window.__bookmarkDB) {
-                try { currentBookmarks = await window.__bookmarkDB.loadBookmarks(type) || []; } catch {}
+              if (window.__bookmarkDB && cfg.dbType) {
+                try { currentBookmarks = await window.__bookmarkDB.loadBookmarks(cfg.dbType) || []; } catch {}
               }
               if (!currentBookmarks.length) {
                 try { currentBookmarks = JSON.parse(localStorage.getItem(cfg.lsKey) || "[]"); } catch {}
@@ -6002,6 +6048,7 @@ window.__appBooted = true;
             if (!pickedId) return;
 
             if (button) button.textContent = "⬇️ 下載中…";
+            const file = files.find(f => f.id === pickedId);
             const downloadResp = await driveFetch("https://www.googleapis.com/drive/v3/files/" + pickedId + "?alt=media");
             const text = await downloadResp.text();
             let downloaded;
@@ -6009,8 +6056,15 @@ window.__appBooted = true;
               GlobalModal.alert("備份檔案格式錯誤，無法解析。");
               return;
             }
+            if (!Array.isArray(downloaded) && downloaded && typeof downloaded === "object") {
+              if (Array.isArray(downloaded.records)) downloaded = downloaded.records;
+              else if (Array.isArray(downloaded.meters)) downloaded = downloaded.meters;
+              else if (Array.isArray(downloaded.data)) downloaded = downloaded.data;
+              else if (Array.isArray(downloaded.items)) downloaded = downloaded.items;
+              else if (Array.isArray(downloaded.bookmarks)) downloaded = downloaded.bookmarks;
+            }
             if (!Array.isArray(downloaded)) {
-              GlobalModal.alert("備份檔案格式不符（需為項目清單）。");
+              GlobalModal.alert("備份檔案格式不符（需為項目清單陣列）。");
               return;
             }
             if (!downloaded.length) {
@@ -6040,6 +6094,23 @@ window.__appBooted = true;
                 bookmarkAdded = downloaded.length;
               } else {
                 bookmarkMode = "merge";
+                if (type === "batch") {
+                  // 若為批次電表，雲端同步時更新本機對應記錄的 inspected 最新狀態
+                  const downloadedMap = new Map();
+                  downloaded.forEach(b => {
+                    const k = b.uid || (b.custNo ? `c_${b.custNo}` : (b.addr ? `a_${b.addr}` : null));
+                    if (k) downloadedMap.set(k, b);
+                  });
+                  currentBookmarks.forEach(b => {
+                    const k = b.uid || (b.custNo ? `c_${b.custNo}` : (b.addr ? `a_${b.addr}` : null));
+                    if (k && downloadedMap.has(k)) {
+                      const cloudRec = downloadedMap.get(k);
+                      if (cloudRec.inspected !== undefined) {
+                        b.inspected = Boolean(cloudRec.inspected);
+                      }
+                    }
+                  });
+                }
                 const existKeys = new Set(currentBookmarks.map(b => b.id || b.custNo || b.number || b.address || b.addr || JSON.stringify(b)));
                 const newItems = downloaded.filter(b => {
                   const k = b.id || b.custNo || b.number || b.address || b.addr || JSON.stringify(b);
@@ -6053,17 +6124,29 @@ window.__appBooted = true;
               bookmarkAdded = downloaded.length;
             }
 
-            localStorage.setItem(cfg.lsKey, JSON.stringify(mergedBookmarks));
+            // 寫入 localStorage 專屬鍵值
+            localStorage.setItem("tp_batch_meter_bookmarks_v1", JSON.stringify(mergedBookmarks));
+            if (cfg.lsKey && cfg.lsKey !== "tp_batch_meter_bookmarks_v1") {
+              localStorage.setItem(cfg.lsKey, JSON.stringify(mergedBookmarks));
+            }
             if (cfg.dbType && window.__bookmarkDB) {
               try { await window.__bookmarkDB.saveBookmarks(cfg.dbType, mergedBookmarks); } catch {}
             }
 
-            window.dispatchEvent(new CustomEvent(cfg.restoreEvent, { detail: { count: mergedBookmarks.length } }));
-            window.dispatchEvent(new CustomEvent("bookmarksRestored"));
+            if (type === "batch") {
+              window.dispatchEvent(new CustomEvent("batchMetersRestored", {
+                detail: { count: mergedBookmarks.length, records: mergedBookmarks }
+              }));
+            } else if (type === "address") {
+              window.dispatchEvent(new CustomEvent("addressBookmarksRestored"));
+              window.dispatchEvent(new CustomEvent("bookmarksRestored"));
+            } else {
+              window.dispatchEvent(new CustomEvent("bookmarksRestored"));
+            }
 
             GlobalModal.alert(`已成功還原「${cfg.label}」！<br>雲端備份共 <strong>${downloaded.length}</strong> 筆，` +
-              (bookmarkMode === "merge" ? `新增 <strong>${bookmarkAdded}</strong> 筆，本機現有共 <strong>${mergedBookmarks.length}</strong> 筆。` : `已完全取代覆蓋本機資料，共 <strong>${mergedBookmarks.length}</strong> 筆。`) +
-              `<br><small style="color:#0f766e;">（此操作完全專屬於${cfg.label}，其餘模組資料不受影響）</small>`);
+              (bookmarkMode === "merge" ? `新增 <strong>${bookmarkAdded}</strong> 筆，本機現有共 <strong>${mergedBookmarks.length}</strong> 筆。` : `已完全取代覆蓋本機資料，共 <strong>${mergedBookmarks.length}</strong> 筆。總筆數：${mergedBookmarks.length} 筆。`) +
+              `<br><small style="color:#0f766e;">（此操作專屬於${cfg.label}，其餘模組資料不受影響）</small>`);
           } catch (e) {
             console.error(`${cfg.label} 還原失敗：`, e);
             if (!e.message.includes("已取消")) {
@@ -6084,14 +6167,26 @@ window.__appBooted = true;
           window.__v2DriveResume = { type: "bookmark_delete", subType: type };
 
           try {
+            clearDriveAccessToken();
             await getDriveAccessToken();
 
-            const query = encodeURIComponent(`(name contains '${cfg.prefix}' or name contains '${cfg.altPrefix}') and trashed = false`);
+            const query = encodeURIComponent("name contains '.json' and trashed = false");
             const resp = await driveFetch(
               "https://www.googleapis.com/drive/v3/files?q=" + query +
               "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,size,createdTime,description)"
             );
-            const files = (await resp.json()).files || [];
+            const allFiles = (await resp.json()).files || [];
+
+            let files = [];
+            if (type === "batch") {
+              files = allFiles.filter(f => /批次|電表|batch/i.test(f.name));
+            } else if (type === "address") {
+              files = allFiles.filter(f => /門牌|地址|address/i.test(f.name));
+            } else if (type === "cadastre") {
+              files = allFiles.filter(f => /地籍|cadastre/i.test(f.name));
+            } else {
+              files = allFiles;
+            }
 
             if (!files.length) {
               GlobalModal.alert(`個人 Google 雲端硬碟目前沒有「${cfg.label}」專屬備份檔。`);
@@ -8936,7 +9031,7 @@ function renderDefectStats() {
           });
 
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./service-worker.js?rev=23', { scope: './' })
+            navigator.serviceWorker.register('./service-worker.js?rev=24', { scope: './' })
               .then((registration) => {
                 if (registration.waiting) {
                   showPWAUpdateBanner(registration);

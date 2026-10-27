@@ -1,4 +1,4 @@
-const CACHE_NAME = "equipment-map-photo-edition-r31";
+const CACHE_NAME = "equipment-map-photo-edition-r32";
 const TILE_CACHE_NAME = "equipment-map-tiles-v1";
 const TILE_CACHE_MAX = 5000;
 const TILE_CACHE_TRIM = 4000;
@@ -13,6 +13,8 @@ const STATIC_ASSETS = [
   "./cadastre.css",
   "./address-search.js",
   "./sync.js",
+  "./batch-meter.js",
+  "./batch-meter.css",
   "./archive-worker.js",
   // points.json 不預快取：由 Worker 以 networkFirst 載入，避免舊檔卡住
   "../data/meta.json",

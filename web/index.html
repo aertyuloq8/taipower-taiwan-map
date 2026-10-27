@@ -414,6 +414,18 @@
             </button>
           </div>
 
+                    <!-- 巡檢進度與已跑隱藏開關列 (專為手機觸控排版最佳化) -->
+          <div id="batchPatrolBar" class="v2-batch-patrol-bar">
+            <div class="v2-batch-patrol-stats">
+              <span class="v2-batch-patrol-pill is-pending" title="剩餘待巡檢電表數">待跑 <strong id="batchPendingCount">0</strong></span>
+              <span class="v2-batch-patrol-pill is-done" title="已完成巡檢電表數">已跑 <strong id="batchDoneCount">0</strong></span>
+            </div>
+            <button id="batchToggleHideDoneBtn" class="v2-batch-patrol-toggle-btn is-active" type="button" title="點擊切換顯示或隱藏已跑點位">
+              <span id="batchToggleDoneIcon">👁️</span>
+              <span id="batchToggleDoneText">隱藏已跑中</span>
+            </button>
+          </div>
+
           <!-- 篩選生效時顯示之狀態提示列 -->
           <div id="batchFilterActiveBar" style="display:none;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:5px 8px;margin:3px 0 5px;font-size:11px;color:#065f46;">
             <span>🌪️ 篩選生效中：顯示 <strong id="batchFilterVisibleCount">0</strong> / <span id="batchFilterTotalCount">0</span> 筆</span>
