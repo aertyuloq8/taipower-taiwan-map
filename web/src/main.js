@@ -5311,6 +5311,7 @@ window.__appBooted = true;
           "&response_type=token" +
           "&scope=" + encodeURIComponent(DRIVE_SCOPE) +
           "&state=" + state +
+          "&prompt=select_account" +
           "&include_granted_scopes=true";
         return new Promise(() => { /* 頁面跳轉後此 Promise 不再被消費 */ });
       }
@@ -5961,6 +5962,7 @@ window.__appBooted = true;
               GlobalModal.alert(`${cfg.label} 上傳失敗：${e.message}`);
             }
           } finally {
+            clearDriveAccessToken();
             if (button) { button.disabled = false; button.textContent = originalText; }
           }
         },
@@ -6164,6 +6166,7 @@ window.__appBooted = true;
               GlobalModal.alert(`${cfg.label} 還原失敗：${e.message}`);
             }
           } finally {
+            clearDriveAccessToken();
             if (button) { button.disabled = false; button.textContent = originalText; }
           }
         },
@@ -6253,6 +6256,7 @@ window.__appBooted = true;
               GlobalModal.alert(`刪除「${cfg.label}」雲端備份失敗：${e.message}`);
             }
           } finally {
+            clearDriveAccessToken();
             if (button) { button.disabled = false; button.textContent = originalText; }
           }
         }
@@ -9039,7 +9043,7 @@ function renderDefectStats() {
           });
 
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./service-worker.js?rev=31', { scope: './' })
+            navigator.serviceWorker.register('./service-worker.js?rev=32', { scope: './' })
               .then((registration) => {
                 if (registration.waiting) {
                   showPWAUpdateBanner(registration);
