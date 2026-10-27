@@ -5352,6 +5352,17 @@ window.__appBooted = true;
         if (!resume) return;
         window.__v2DriveResume = null;
         const run = () => {
+          if (resume.subType === "batch") {
+            const p = document.getElementById("v2BatchPanel");
+            if (p && !p.classList.contains("is-open")) document.getElementById("v2BatchToggle")?.click();
+          } else if (resume.subType === "address") {
+            const p = document.getElementById("v2AddressPanel");
+            if (p && !p.classList.contains("is-open")) document.getElementById("v2AddressToggle")?.click();
+          } else if (resume.subType === "cadastre") {
+            const p = document.getElementById("v2CadastrePanel");
+            if (p && !p.classList.contains("is-open")) document.getElementById("v2CadastreToggle")?.click();
+          }
+
           if (resume.type === "backup") driveBackupAction();
           else if (resume.type === "restore") driveRestoreAction();
           else if (resume.type === "delete") driveDeleteAction();
@@ -5362,7 +5373,7 @@ window.__appBooted = true;
           else GlobalModal.alert("Google 登入完成，請再按一次原本的功能。");
         };
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
-        else setTimeout(run, 300);
+        else setTimeout(run, 400);
       })();
       async function getDriveAccessToken() {
         const clientId = await ensureDriveClientId();
@@ -5474,6 +5485,9 @@ window.__appBooted = true;
           headers: { Authorization: "Bearer " + token, ...(options.headers || {}) },
         });
         if (!resp.ok) {
+          if (resp.status === 401) {
+            clearDriveAccessToken();
+          }
           let detail = "";
           try { detail = (await resp.json()).error?.message || ""; } catch { /* ignore */ }
           throw new Error("Google Drive 請求失敗（" + resp.status + "）" + (detail ? "：" + detail : ""));
@@ -5925,7 +5939,6 @@ window.__appBooted = true;
           }
 
           try {
-            clearDriveAccessToken();
             await getDriveAccessToken();
             if (button) button.textContent = "☁️ 上傳中…";
 
@@ -5948,7 +5961,6 @@ window.__appBooted = true;
               GlobalModal.alert(`${cfg.label} 上傳失敗：${e.message}`);
             }
           } finally {
-            clearDriveAccessToken();
             if (button) { button.disabled = false; button.textContent = originalText; }
           }
         },
@@ -5962,7 +5974,6 @@ window.__appBooted = true;
           window.__v2DriveResume = { type: "bookmark_restore", subType: type };
 
           try {
-            clearDriveAccessToken();
             await getDriveAccessToken();
 
             // 查詢雲端 .json 備份檔 (使用標準 .json 查詢，避開 Google Drive API 對中文斷詞的索引限制)
@@ -6153,7 +6164,6 @@ window.__appBooted = true;
               GlobalModal.alert(`${cfg.label} 還原失敗：${e.message}`);
             }
           } finally {
-            clearDriveAccessToken();
             if (button) { button.disabled = false; button.textContent = originalText; }
           }
         },
@@ -6167,7 +6177,6 @@ window.__appBooted = true;
           window.__v2DriveResume = { type: "bookmark_delete", subType: type };
 
           try {
-            clearDriveAccessToken();
             await getDriveAccessToken();
 
             const query = encodeURIComponent("name contains '.json' and trashed = false");
@@ -6244,7 +6253,6 @@ window.__appBooted = true;
               GlobalModal.alert(`刪除「${cfg.label}」雲端備份失敗：${e.message}`);
             }
           } finally {
-            clearDriveAccessToken();
             if (button) { button.disabled = false; button.textContent = originalText; }
           }
         }
@@ -9031,7 +9039,7 @@ function renderDefectStats() {
           });
 
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./service-worker.js?rev=30', { scope: './' })
+            navigator.serviceWorker.register('./service-worker.js?rev=31', { scope: './' })
               .then((registration) => {
                 if (registration.waiting) {
                   showPWAUpdateBanner(registration);
