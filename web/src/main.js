@@ -9043,7 +9043,7 @@ function renderDefectStats() {
           });
 
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./service-worker.js?rev=33', { scope: './' })
+            navigator.serviceWorker.register('./service-worker.js?rev=34', { scope: './' })
               .then((registration) => {
                 if (registration.waiting) {
                   showPWAUpdateBanner(registration);
