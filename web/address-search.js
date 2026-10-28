@@ -73,8 +73,23 @@
     "6": "六", "7": "七", "8": "八", "9": "九", "10": "十"
   };
 
+  const cityAbbrList = [
+    [/^南市/g, "台南市"],
+    [/^北市/g, "台北市"],
+    [/^高市/g, "高雄市"],
+    [/^中市/g, "台中市"],
+    [/^桃市/g, "桃園市"],
+    [/^基市/g, "基隆市"],
+    [/^竹市/g, "新竹市"],
+    [/^嘉市/g, "嘉義市"],
+    [/^新北(?!市)/g, "新北市"]
+  ];
+
   function cleanAddrWord(s) {
     let str = String(s || "").normalize("NFKC").trim();
+    for (const [re, rep] of cityAbbrList) {
+      str = str.replace(re, rep);
+    }
     str = str.replace(/第([一二三四五六七八九十\d]+)段/g, "$1段");
     str = str.replace(/([1-9]|10)段/g, (_, num) => `${digitToChinese[num]}段`);
     return str;
