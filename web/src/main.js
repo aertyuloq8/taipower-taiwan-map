@@ -9120,7 +9120,7 @@ function renderDefectStats() {
           });
 
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./service-worker.js?rev=37', { scope: './' })
+            navigator.serviceWorker.register('./service-worker.js?rev=38', { scope: './' })
               .then((registration) => {
                 if (registration.waiting) {
                   showPWAUpdateBanner(registration);
