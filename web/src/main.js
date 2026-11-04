@@ -537,6 +537,8 @@ window.__appBooted = true;
         });
         document.getElementById("storageRefreshBtn").addEventListener("click", refreshStorageStatus);
         document.getElementById("requestPersistentStorageBtn").addEventListener("click", requestPersistentStorage);
+        const cleanOrphanBtn = document.getElementById("cleanOrphanPhotosBtn");
+        if (cleanOrphanBtn) cleanOrphanBtn.addEventListener("click", cleanOrphanPhotos);
         (function initPanelFolds() {
           const folds = [["recordsToolsFold", "recordsToolsOpen"], ["storageHealthFold", "storageHealthOpen"]];
           folds.forEach(([id, key]) => {
@@ -934,6 +936,95 @@ window.__appBooted = true;
           GlobalModal.alert("資料保護請求失敗，請持續建立完整備份。");
           button.disabled = false;
           button.textContent = originalText;
+        }
+      }
+
+      async function cleanOrphanPhotos() {
+        const btn = document.getElementById("cleanOrphanPhotosBtn");
+        if (btn) btn.disabled = true;
+        try {
+          const activeIds = new Set();
+          (state.records || []).forEach(record => {
+            (record.photos || []).forEach(photo => {
+              if (photo?.id) activeIds.add(photo.id);
+            });
+          });
+          if (typeof editPhotoState !== "undefined" && editPhotoState) {
+            (editPhotoState.existing || []).forEach(p => { if (p?.id) activeIds.add(p.id); });
+            (editPhotoState.pending || []).forEach(p => { if (p?.meta?.id) activeIds.add(p.meta.id); });
+            (editPhotoState.originalExisting || []).forEach(p => { if (p?.id) activeIds.add(p.id); });
+          }
+          try {
+            const draft = await getDraftRecord();
+            (draft?.photos || []).forEach(p => { if (p?.id) activeIds.add(p.id); });
+          } catch {}
+
+          const db = await openPhotoDb();
+          const orphans = await new Promise((resolve, reject) => {
+            const list = [];
+            const transaction = db.transaction(PHOTO_STORE_NAME, "readonly");
+            const request = transaction.objectStore(PHOTO_STORE_NAME).openCursor();
+            request.onsuccess = () => {
+              const cursor = request.result;
+              if (!cursor) return;
+              const photoId = cursor.value?.id || cursor.key;
+              if (photoId && !activeIds.has(photoId)) {
+                list.push({
+                  id: photoId,
+                  bytes: Number(cursor.value?.blob?.size) || 0
+                });
+              }
+              cursor.continue();
+            };
+            transaction.oncomplete = () => resolve(list);
+            transaction.onerror = () => reject(transaction.error || request.error);
+            transaction.onabort = () => reject(transaction.error);
+          });
+
+          if (!orphans.length) {
+            GlobalModal.alert("目前無殘留的無效照片，儲存空間很乾淨！");
+            return;
+          }
+
+          const totalBytes = orphans.reduce((sum, item) => sum + item.bytes, 0);
+          const sizeStr = formatStorageBytes(totalBytes);
+
+          GlobalModal.confirm(
+            `發現 ${orphans.length} 張未被任何巡檢紀錄使用的殘留照片（共 ${sizeStr}）。\n\n這些照片可能是先前當機、未儲存或刪除設備後殘留在瀏覽器內的檔案。\n\n是否立即清理以釋放裝置儲存空間？`,
+            async () => {
+              try {
+                if (btn) {
+                  btn.disabled = true;
+                  btn.textContent = "⏳ 清理中...";
+                }
+                const deleteTx = db.transaction(PHOTO_STORE_NAME, "readwrite");
+                const store = deleteTx.objectStore(PHOTO_STORE_NAME);
+                orphans.forEach(item => store.delete(item.id));
+                await new Promise((resolve, reject) => {
+                  deleteTx.oncomplete = () => resolve();
+                  deleteTx.onerror = () => reject(deleteTx.error);
+                  deleteTx.onabort = () => reject(deleteTx.error);
+                });
+                await refreshStorageStatus();
+                GlobalModal.alert(`清理完成！已成功清除 ${orphans.length} 張殘留照片，釋放了 ${sizeStr} 空間。`);
+              } catch (err) {
+                console.error("清理殘留照片失敗：", err);
+                GlobalModal.alert("清理殘留照片時發生錯誤：" + (err?.message || err));
+              } finally {
+                if (btn) {
+                  btn.disabled = false;
+                  btn.textContent = "🧹 清理無效殘留照片";
+                }
+              }
+            }
+          );
+        } catch (err) {
+          console.error("檢查殘留照片失敗：", err);
+          GlobalModal.alert("檢查殘留照片時發生錯誤：" + (err?.message || err));
+        } finally {
+          if (btn && btn.textContent !== "⏳ 清理中...") {
+            btn.disabled = false;
+          }
         }
       }
 
@@ -2585,6 +2676,9 @@ window.__appBooted = true;
         labelsHidden: false, lastFolderId: null,
         routeLayerVisible: false,
       };
+      window.cleanOrphanPhotos = cleanOrphanPhotos;
+      window.verifyZipManifest = verifyZipManifest;
+      window.importZipBackup = importZipBackup;
 
       let editPhotoState = { recordId: null, existing: [], originalExisting: [], pending: [] };
       let editDraftState = { dirty: false, point: null, saveTimer: null, saveSequence: Promise.resolve(), restored: false };
@@ -6481,25 +6575,50 @@ window.__appBooted = true;
 
       async function verifyZipManifest(zip, manifest) {
         if (!manifest || !Array.isArray(manifest.files)) {
-          return { valid: true, legacy: true, checked: 0, errors: [] };
+          return { valid: true, legacy: true, checked: 0, errors: [], warnings: [] };
         }
         const errors = [];
+        const warnings = [];
+        const seenPaths = new Set();
         let checked = 0;
         for (const expected of manifest.files) {
+          if (!expected || !expected.path) continue;
+          // 若清單內有重複路徑，僅校驗一次避免重複報錯
+          if (seenPaths.has(expected.path)) continue;
+          seenPaths.add(expected.path);
+
           const entry = zip.file(expected.path);
+          const isAuxiliary = expected.path.startsWith("cards/") ||
+                              expected.path === "inspection-card.html" ||
+                              expected.path === "README.txt" ||
+                              expected.path === "records.xlsx";
+
           if (!entry || entry.dir) {
-            errors.push(`${expected.path} 遺失`);
+            if (isAuxiliary) {
+              warnings.push(`${expected.path} 遺失（輔助檔案）`);
+            } else {
+              errors.push(`${expected.path} 遺失`);
+            }
             continue;
           }
           const blob = await entry.async("blob");
           checked++;
-          if (Number(expected.bytes) !== blob.size) errors.push(`${expected.path} 大小不符`);
-          if (expected.sha256) {
+          let mismatch = false;
+          if (Number(expected.bytes) !== blob.size) mismatch = true;
+          if (!mismatch && expected.sha256) {
             const actual = await sha256Hex(blob);
-            if (actual !== expected.sha256) errors.push(`${expected.path} SHA-256 不符`);
+            if (actual !== expected.sha256) mismatch = true;
+          }
+          if (mismatch) {
+            if (isAuxiliary) {
+              warnings.push(`${expected.path} 校驗不符（輔助預覽卡片，已自動略過不影響還原）`);
+              console.warn(`[verifyZipManifest] 輔助檔案 ${expected.path} 完整性不符，略過不影響還原`);
+            } else {
+              errors.push(`${expected.path} SHA-256 或大小不符`);
+            }
           }
         }
-        return { valid: errors.length === 0, legacy: false, checked, errors };
+        return { valid: errors.length === 0, legacy: false, checked, errors, warnings };
       }
 
       async function importZipBackup(file, onProgress = null) {
@@ -6845,6 +6964,9 @@ window.__appBooted = true;
         }
 
         if (e.target.id === "sidebarSaveBtn") {
+          const saveBtn = document.getElementById("sidebarSaveBtn");
+          if (!saveBtn || saveBtn.disabled || saveBtn.dataset.saving === "true") return;
+
           const lat = parseFloat(document.getElementById("editLat").value);
           const lng = parseFloat(document.getElementById("editLng").value);
           const code = document.getElementById("editCode").value;
@@ -6915,6 +7037,12 @@ window.__appBooted = true;
           );
 
           const performSave = async () => {
+            if (saveBtn.dataset.saving === "true") return;
+            saveBtn.dataset.saving = "true";
+            saveBtn.disabled = true;
+            const originalBtnText = saveBtn.textContent;
+            saveBtn.textContent = "⏳ 儲存中...";
+            try {
             const conflictPhotos = collisionRecord && collisionRecord.id !== editRecordId ? (collisionRecord.photos || []) : [];
             const finalRecordId = editRecordId || collisionRecord?.id || generateId();
             const finalExistingPhotos = [...editPhotoState.existing, ...conflictPhotos]
@@ -6976,6 +7104,10 @@ window.__appBooted = true;
                 document.getElementById("panelToggle").title = "展開面板";
               }, 450);
               window.setTimeout(() => setStatus(""), 2200);
+            }
+            } finally {
+              saveBtn.disabled = false;
+              delete saveBtn.dataset.saving;
             }
           };
 
@@ -9120,7 +9252,7 @@ function renderDefectStats() {
           });
 
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./service-worker.js?rev=38', { scope: './' })
+            navigator.serviceWorker.register('./service-worker.js?rev=39', { scope: './' })
               .then((registration) => {
                 if (registration.waiting) {
                   showPWAUpdateBanner(registration);
