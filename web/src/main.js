@@ -6069,14 +6069,44 @@ window.__appBooted = true;
             const now = new Date();
             const pad = (n) => String(n).padStart(2, "0");
             const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-            const fileName = `${cfg.prefix}${timeStr}.json`;
-            const blob = new Blob([JSON.stringify(bookmarks, null, 2)], { type: "application/json" });
+            let fileName = `${cfg.prefix}${timeStr}.json`;
+            let blob = null;
+            let mimeType = "application/json";
             const doneCount = type === "batch" ? bookmarks.filter(r => r.inspected).length : 0;
+
+            // 批次電表特殊處理：若本機有存證相片，自動打包 ZIP 上傳以實現跨裝置照片無縫同步
+            let photoCount = 0;
+            if (type === "batch" && window.BatchPhotoDB) {
+              try {
+                const photos = await window.BatchPhotoDB.getAllPhotos();
+                if (photos && photos.length > 0) {
+                  photoCount = photos.length;
+                  await ensureJSZip();
+                  const zip = new JSZip();
+                  zip.file("records.json", JSON.stringify(bookmarks, null, 2));
+                  const pFolder = zip.folder("photos");
+                  photos.forEach(p => {
+                    pFolder.file(p.id + ".jpg", p.blob);
+                    zip.file("meta_" + p.id + ".json", JSON.stringify(p.meta || {}));
+                  });
+                  blob = await zip.generateAsync({ type: "blob" });
+                  fileName = `${cfg.prefix}${timeStr}_${bookmarks.length}只_${photoCount}照.zip`;
+                  mimeType = "application/zip";
+                }
+              } catch (zipErr) {
+                console.warn("照片打包 ZIP 失敗，改用純 JSON：", zipErr);
+              }
+            }
+
+            if (!blob) {
+              blob = new Blob([JSON.stringify(bookmarks, null, 2)], { type: "application/json" });
+            }
+
             const description = type === "batch"
-              ? `${cfg.label} ${bookmarks.length} 筆 (已跑 ${doneCount} 筆，待跑 ${bookmarks.length - doneCount} 筆) · 上傳於 ${now.toLocaleString("zh-TW")}`
+              ? `${cfg.label} ${bookmarks.length} 筆 (已跑 ${doneCount} 筆，存證照片 ${photoCount} 張) · 上傳於 ${now.toLocaleString("zh-TW")}`
               : `${cfg.label} ${bookmarks.length} 筆 · 上傳於 ${now.toLocaleString("zh-TW")}`;
 
-            await uploadZipToDrive(blob, fileName, null, "application/json", description);
+            await uploadZipToDrive(blob, fileName, null, mimeType, description);
 
             GlobalModal.alert(`已成功上傳「${cfg.label}」（共 <strong>${bookmarks.length}</strong> 筆）至個人 Google 雲端硬碟：<br><br><strong>${escapeHtml(fileName)}</strong>`);
           } catch (e) {
@@ -6101,8 +6131,8 @@ window.__appBooted = true;
           try {
             await getDriveAccessToken();
 
-            // 查詢雲端 .json 備份檔 (使用標準 .json 查詢，避開 Google Drive API 對中文斷詞的索引限制)
-            const query = encodeURIComponent("name contains '.json' and trashed = false");
+            // 查詢雲端 .json 與 .zip 備份檔 (支援相片完整封裝檔)
+            const query = encodeURIComponent("((name contains '.json') or (name contains '.zip')) and trashed = false");
             const resp = await driveFetch(
               "https://www.googleapis.com/drive/v3/files?q=" + query +
               "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,size,createdTime,description)"
@@ -6186,11 +6216,63 @@ window.__appBooted = true;
             if (button) button.textContent = "⬇️ 下載中…";
             const file = files.find(f => f.id === pickedId);
             const downloadResp = await driveFetch("https://www.googleapis.com/drive/v3/files/" + pickedId + "?alt=media");
-            const text = await downloadResp.text();
-            let downloaded;
-            try { downloaded = JSON.parse(text); } catch {
-              GlobalModal.alert("備份檔案格式錯誤，無法解析。");
-              return;
+            let downloaded = null;
+            let restoredPhotosCount = 0;
+
+            if (file && file.name && file.name.toLowerCase().endsWith(".zip")) {
+              try {
+                await ensureJSZip();
+                const zipBlob = await downloadResp.blob();
+                const zip = await JSZip.loadAsync(zipBlob);
+                const recordsFile = zip.file("records.json") || zip.file("batch.json") || zip.file("meters.json");
+                if (recordsFile) {
+                  downloaded = JSON.parse(await recordsFile.async("string"));
+                }
+                // 還原 photos/
+                if (window.BatchPhotoDB) {
+                  const photoEntries = [];
+                  const photoFiles = zip.file(/^photos\//);
+                  for (const pf of photoFiles) {
+                    if (pf.dir) continue;
+                    const pBlob = await pf.async("blob");
+                    const pId = pf.name.replace(/^photos\//, "").replace(/\.jpg$/i, "");
+                    let meta = {};
+                    const metaFile = zip.file("meta_" + pId + ".json");
+                    if (metaFile) {
+                      try { meta = JSON.parse(await metaFile.async("string")); } catch {}
+                    }
+                    const parts = pId.split("_");
+                    const type = parts.pop();
+                    const uid = parts.join("_");
+                    photoEntries.push({
+                      id: pId,
+                      uid,
+                      custNo: meta.custNo || "",
+                      type: (type === "meter" || type === "scene") ? type : "meter",
+                      blob: pBlob,
+                      width: 1600,
+                      height: 1200,
+                      size: pBlob.size,
+                      createdAt: Date.now(),
+                      timeStr: meta.timeStr || "",
+                      meta
+                    });
+                  }
+                  if (photoEntries.length > 0) {
+                    restoredPhotosCount = await window.BatchPhotoDB.importPhotoEntries(photoEntries);
+                  }
+                }
+              } catch (zipErr) {
+                console.error("ZIP 備份解壓失敗：", zipErr);
+                GlobalModal.alert("ZIP 備份檔案解壓失敗：" + zipErr.message);
+                return;
+              }
+            } else {
+              const text = await downloadResp.text();
+              try { downloaded = JSON.parse(text); } catch {
+                GlobalModal.alert("備份檔案格式錯誤，無法解析。");
+                return;
+              }
             }
             if (!Array.isArray(downloaded) && downloaded && typeof downloaded === "object") {
               if (Array.isArray(downloaded.records)) downloaded = downloaded.records;
