@@ -2269,8 +2269,9 @@ window.__appBooted = true;
           verWrap.style.cssText = "margin-top:10px; padding-top:8px; border-top:1px dashed #cbd5e1; text-align:center; display:flex; flex-direction:column; align-items:center; gap:6px;";
           
           const verLink = document.createElement("a");
+          verLink.id = "systemVersionLink";
           verLink.href = "javascript:void(0)";
-          verLink.textContent = "系統版本：v2.8.2-tw";
+          verLink.textContent = "系統版本：v2.8.3-tw";
           verLink.style.cssText = "color:#0f766e; font-size:11px; font-weight:700; text-decoration:none; cursor:pointer;";
           verLink.title = "點擊切換至【臺南區處專用地圖】";
           verLink.addEventListener("click", (e) => {
@@ -6079,13 +6080,15 @@ window.__appBooted = true;
             if (type === "batch" && window.BatchPhotoDB) {
               try {
                 const photos = await window.BatchPhotoDB.getAllPhotos();
-                if (photos && photos.length > 0) {
-                  photoCount = photos.length;
+                const validUids = new Set(bookmarks.map(r => r.uid));
+                const validPhotos = (photos || []).filter(p => validUids.has(p.uid));
+                if (validPhotos && validPhotos.length > 0) {
+                  photoCount = validPhotos.length;
                   await ensureJSZip();
                   const zip = new JSZip();
                   zip.file("records.json", JSON.stringify(bookmarks, null, 2));
                   const pFolder = zip.folder("photos");
-                  photos.forEach(p => {
+                  validPhotos.forEach(p => {
                     pFolder.file(p.id + ".jpg", p.blob);
                     zip.file("meta_" + p.id + ".json", JSON.stringify(p.meta || {}));
                   });
@@ -6387,7 +6390,7 @@ window.__appBooted = true;
           try {
             await getDriveAccessToken();
 
-            const query = encodeURIComponent("name contains '.json' and trashed = false");
+            const query = encodeURIComponent("((name contains '.json') or (name contains '.zip')) and trashed = false");
             const resp = await driveFetch(
               "https://www.googleapis.com/drive/v3/files?q=" + query +
               "&orderBy=createdTime desc&pageSize=50&fields=files(id,name,size,createdTime,description)"
